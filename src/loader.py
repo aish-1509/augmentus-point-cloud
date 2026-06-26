@@ -1,23 +1,39 @@
-"""Dataset loading for Open3D's Eagle point cloud sample."""
 import logging
+
 import open3d as o3d
 
 logger = logging.getLogger(__name__)
 
+
 class Loader:
-    """Load the Eagle point cloud sample from Open3D's dataset nd just loads point cloud datasets from o3d's built-in data utilities."""
+    """Loads point cloud datasets from Open3D's built-in data utilities.
 
-    def __init__(self):
-        self._pcd = None
+    Responsibility: acquiring raw data only.
+    This class knows nothing about preprocessing, normals, or clustering.
+    """
 
-    def load(self) -> o3d.geometry.PointCloud:
-        """Load the Eagle point cloud sample.
+    def load_eagle(self) -> o3d.geometry.PointCloud:
+        """Load and return the Eagle point cloud dataset.
+
+        Open3D downloads the file automatically on the first call and caches
+        it locally (~50 MB). Subsequent calls use the local cache.
 
         Returns:
-            o3d.geometry.PointCloud: The loaded point cloud.
+            o3d.geometry.PointCloud: The raw unprocessed point cloud.
+
+        Raises:
+            RuntimeError: If the dataset loads but contains zero points.
         """
-        if self._pcd is None:
-            logger.info("Loading Eagle point cloud sample...")
-            self._pcd = o3d.data.EaglePointCloud()
-            logger.info("Eagle point cloud sample loaded.")
-        return self._pcd
+        dataset = o3d.data.EaglePointCloud()
+        # dataset.path is the local file path after download.
+        # o3d.io.read_point_cloud reads .pcd, .ply, .xyz, .xyzn, and others.
+        pcd = o3d.io.read_point_cloud(dataset.path)
+
+        if pcd.is_empty():
+            raise RuntimeError(
+                "Loaded point cloud has no points. "
+                "Check your Open3D installation and network access."
+            )
+
+        logger.info("Loaded Eagle dataset: %s points", f"{len(pcd.points):,}")
+        return pcd
