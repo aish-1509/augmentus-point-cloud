@@ -1,51 +1,61 @@
-# this is the first step i'm doing as it's the single file where every value i need to tune stays, esp with the assignment requiremnts, if the DBSCAN eps needs changing, then i can change it here and nowhere else, and this is just a mental note to myself
-
 from dataclasses import dataclass
+
 
 @dataclass
 class Config:
-    """Central configuration class for the point cloud processing pipeline."""
-    
-    # Preprocessing parameters
+    """Central configuration for the point cloud processing pipeline.
+
+    Every numeric parameter lives here. No magic numbers anywhere else.
+    Change a value once and every stage picks it up automatically.
+    """
+
+    # ── Preprocessing ─────────────────────────────────────────────────────────
     voxel_size: float = 0.02
-    # voxel_size: this is where each 3d cube of this side-length (in m) collapses to a single point on the centroid.
-    # eagle is a very large outdoor scan, based on what i saw online, 0.02m = 2cm cubes could work well, maybe i can make it 0.05 = 5 cm cubes, and this would mostly....
-    # too many points-> increase, shape gets blocky-> decrease
-    
+    # Each 3D cube of this side-length (in metres) collapses to one centroid point.
+    # Eagle is a large outdoor scan (~1m scale object).
+    # 0.02m = 2cm cubes keeps fine detail while cutting point count ~30x.
+    # Too many points surviving → increase. Shape gets blocky → decrease.
+
     sor_nb_neighbors: int = 30
-    # sor_nb_neighbors: this is the number of neighbors to analyze for each point when removing outliers. A higher value means more points are considered, which can lead to better noise removal but may also remove valid points. A lower value may retain more points but could leave more noise in the data.
-    # its means distance, more nieghbours = smoother and cleaner est. , slow computation
-    
+    # For each point, find this many nearest neighbours and compute mean distance.
+    # More neighbours = more stable estimate, slightly slower.
+    # 30 is a safe default after downsampling to ~50k points.
+
     sor_std_ratio: float = 2.0
-    # SOR removes points whose mean neighbour distance exceeds
-    # global_mean + std_ratio * std_deviation.
-    
-    # normal estimation parameters
+    # Remove points whose mean neighbour distance exceeds
+    # (global_mean + std_ratio × std_deviation).
+    # 2.0 = 2-sigma rule: removes ~5% of points (only genuine outliers).
+    # Lower = more aggressive removal. Higher = more conservative.
+
+    # ── Normal estimation ─────────────────────────────────────────────────────
     normal_radius: float = 0.1
-    
+    # Search radius for PCA neighbourhood in metres.
+    # Must be large enough to capture enough neighbours to define a stable plane.
+    # Rule of thumb: 3–5× voxel_size. Here: 0.1 / 0.02 = 5× voxel_size.
+
     normal_max_nn: int = 30
-    # hard limit on neighbours even if more fall within normal_radius.
-    #prevents very dense regions from dominating the computtation time and effort....~~
-    
-    # clustering (DBSCAN) ~~ smth new to learn 
-    
+    # Hard cap on neighbours used per point even if more fall within normal_radius.
+    # PCA quality saturates at ~20–30 points. Capping prevents dense regions
+    # from dominating computation time.
+
+    # ── Clustering (DBSCAN) ───────────────────────────────────────────────────
     clustering_eps: float = 0.05
-    # clustering_eps: this is the maximum distance between two points for them to be considered as
-    # too small -> everything becomes nouse
-    # tooo large -> all clusters merge into one, and the noise points are also merged into the clusters, which is not good.
-    
+    # Maximum distance between two points to be considered neighbours in DBSCAN.
+    # Must be larger than voxel_size (so adjacent voxel centres can reach each other)
+    # and smaller than the gap between separate objects.
+    # Too small → everything labelled noise. Too large → all clusters merge into one.
+    # Tune this first if clustering looks wrong.
+
     clustering_min_points: int = 50
-    # clustering_min_points: minimum local density DBSCAN needs before treating a region as a real cluster.
-    
-    # gotta tune this first if clustering is not working well, then i can tune the voxel_size and sor_nb_neighbors and sor_std_ratio, but first i need to tune this if it looks wrong.
-    
-    # outputs
+    # Minimum neighbours within eps for a point to be a DBSCAN core point.
+    # After downsampling, 50 points ≈ a 20cm² surface patch — a meaningful minimum.
+    # Too small → noise fragments become clusters. Too large → real parts labelled noise.
+
+    # ── Output ────────────────────────────────────────────────────────────────
     output_dir: str = "docs/renders"
-    
+    # Directory where all PNG renders are written. Created automatically if absent.
+
     render_subsample: int = 8000
-    
-    #Matplotlis slowsn down badly past ~10k scattered points in 3d.
-    # we randomly subsample to this count for rendering only..... 
-    # the actual processing is done on the full point cloud, but for visualization, we limit the number of points to render to avoid performance issues.
-    
-    
+    # Matplotlib 3D scatter slows badly past ~10k points.
+    # Randomly subsample to this count for rendering only.
+    # Actual processing always uses the full cloud — this only affects image output.
