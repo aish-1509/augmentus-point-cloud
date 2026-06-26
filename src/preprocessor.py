@@ -1,3 +1,17 @@
+"""Preprocessing notes.
+
+The easy mistake here is to run outlier removal on the huge raw scan first.
+That works in theory, but it makes Open3D do nearest-neighbour work on far more
+points than needed. I downsample first because it turns the cloud from something
+like millions of points into something closer to tens of thousands. Same idea,
+much less work.
+
+The other small gotcha is `remove_statistical_outlier`. It returns two things:
+the cleaned cloud first, then the indices of the points it kept. I only need the
+cloud here, so the code is `clean, _ = ...`. The underscore is just the normal
+Python way of saying, "I know this value exists, but I am not using it here."
+"""
+
 import logging
 
 import open3d as o3d
@@ -59,6 +73,8 @@ class Preprocessor:
             A new PointCloud with noise points removed.
         """
         before = len(pcd.points)
+        # Open3D returns (cleaned_cloud, kept_point_indices).
+        # I am deliberately keeping only the cleaned cloud here.
         clean, _ = pcd.remove_statistical_outlier(
             nb_neighbors=self.nb_neighbors,
             std_ratio=self.std_ratio,
@@ -80,5 +96,7 @@ class Preprocessor:
         Returns:
             Clean, downsampled point cloud ready for normal estimation.
         """
+        # Order matters: doing SOR after downsampling makes the neighbour search
+        # much cheaper, while still cleaning the points used by later stages.
         downsampled = self.downsample(pcd)
         return self.remove_outliers(downsampled)
