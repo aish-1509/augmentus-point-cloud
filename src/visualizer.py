@@ -1,1 +1,1 @@
-"""Visualization helpers for inspecting point cloud processing results."""
+"""Render helpers for the assignment output images."""

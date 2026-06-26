@@ -1,1 +1,1 @@
-"""Normal estimation utilities for local point cloud geometry."""
+"""Surface normal estimation for the preprocessed cloud."""

@@ -1,5 +1,5 @@
-"""Tests for point cloud preprocessing behavior."""
+"""Preprocessing tests.
 
-
-def test_preprocessing_test_module_exists():
-    assert True
+Planned check from the brief: voxel downsampling should reduce the number of
+points in the Eagle cloud.
+"""

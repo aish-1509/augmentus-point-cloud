@@ -1,1 +1,1 @@
-"""Preprocessing utilities for cleaning and simplifying point clouds."""
+"""Downsampling and filtering steps before normals and clustering."""

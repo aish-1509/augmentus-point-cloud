@@ -1,1 +1,1 @@
-"""Cluster extraction utilities for segmenting processed point clouds."""
+"""Euclidean-distance cluster extraction for processed point clouds."""

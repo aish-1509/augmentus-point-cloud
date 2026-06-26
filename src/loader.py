@@ -1,1 +1,1 @@
-"""Input loading utilities for point cloud files."""
+"""Dataset loading for Open3D's Eagle point cloud sample."""

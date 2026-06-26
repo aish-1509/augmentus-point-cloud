@@ -1,1 +1,1 @@
-"""Test package for the point cloud processing project."""
+"""Tests for the point cloud processing assignment."""

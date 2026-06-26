@@ -1,1 +1,1 @@
-"""Point cloud processing package for the Augmentus perception assignment."""
+"""Open3D point cloud pipeline for the Augmentus perception assignment."""

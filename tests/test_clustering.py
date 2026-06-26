@@ -1,5 +1,5 @@
-"""Tests for point cloud clustering behavior."""
+"""Clustering tests.
 
-
-def test_clustering_test_module_exists():
-    assert True
+Planned check from the brief: the clustering stage should find more than one
+segment in the Eagle cloud.
+"""

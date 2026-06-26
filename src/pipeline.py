@@ -1,1 +1,1 @@
-"""Pipeline entry point for connecting the point cloud processing stages."""
+"""End-to-end script for the Eagle point cloud experiment."""
