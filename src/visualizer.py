@@ -28,10 +28,10 @@ class Visualizer:
     are scaled independently, and large transparent points turn dense geometry
     into blurry sludge.
 
-    Current fix: rotate the render-only numpy points from the scan's native
-    sideways frame into a Z-up plotting frame, lock one uniform 3D bounding box,
-    render the cleaned Eagle cloud without dropping points, and use tiny opaque
-    points so the silhouette comes from real scan density.
+    Current fix: rotate the render-only numpy points into the posture I want in
+    the saved PNGs, lock one uniform 3D bounding box, render the cleaned Eagle
+    cloud without dropping points, and use tiny opaque points so the silhouette
+    comes from real scan density.
     """
 
     def __init__(self, output_dir: str = "docs/renders") -> None:
@@ -77,19 +77,26 @@ class Visualizer:
             pts_r = pts.copy()
             cols_r = np.asarray(pcd.colors) if pcd.has_colors() else None
 
-        # The Eagle scan is not stored in the same "upright" frame that matplotlib
-        # expects. Camera orbiting only changes where I look from; it cannot stand a
-        # sideways object up. This render-only rotation maps the scan's up direction
-        # into matplotlib's Z-up world without touching the actual pipeline data.
-        theta_x = np.radians(90.0)
-        rotation_x = np.array(
+        # Camera orbiting only changes where I look from; it cannot fix object
+        # posture. This render-only transform flips the scan upright and then yaws
+        # it into a straight-on 3/4 read. The actual Open3D cloud is untouched.
+        theta_x = np.radians(180.0)
+        rx = np.array(
             [
                 [1.0, 0.0, 0.0],
                 [0.0, np.cos(theta_x), -np.sin(theta_x)],
                 [0.0, np.sin(theta_x), np.cos(theta_x)],
             ]
         )
-        pts_r = pts_r @ rotation_x.T
+        theta_z = np.radians(90.0)
+        rz = np.array(
+            [
+                [np.cos(theta_z), -np.sin(theta_z), 0.0],
+                [np.sin(theta_z), np.cos(theta_z), 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        pts_r = pts_r @ (rz @ rx).T
 
         fig = plt.figure(figsize=(12, 10), facecolor="#050505")
         ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
@@ -148,8 +155,8 @@ class Visualizer:
         # Clean inspection render: no grid, no panes, no tick labels. Just geometry.
         ax.axis("off")
 
-        # Normal low 3/4 view now that the point cloud itself has been stood up.
-        ax.view_init(elev=20, azim=-45)
+        # Straight-on camera after the render-only yaw has turned the eagle.
+        ax.view_init(elev=20, azim=0)
 
         out_path = os.path.join(self._output_dir, filename)
         plt.savefig(

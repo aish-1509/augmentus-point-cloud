@@ -98,10 +98,10 @@ stretched or blobby in the final PNG. Also, large semi-transparent scatter point
 turn dense 3D geometry into a muddy cloud because Matplotlib is not a true
 hardware point-cloud renderer.
 
-The final orientation issue was a coordinate-frame problem, not a camera problem.
-Orbiting the camera around a sideways scan still leaves the scan sideways. The
-visualizer now applies a render-only `Rx(+90°)` rotation to the NumPy points before
-plotting, which stands the Eagle up in Matplotlib's Z-up plotting frame without
+The final orientation issue was a posture problem, not a camera problem. Orbiting
+the camera around a badly oriented scan still leaves the scan badly oriented. The
+visualizer now applies a render-only `Rx(180°)` flip followed by a `Rz(90°)` yaw
+to the NumPy points before plotting, which makes the saved PNGs upright without
 changing the actual Open3D point cloud used by the pipeline.
 
 The final render pass treats the PNGs more like visual inspection artifacts than
@@ -115,8 +115,8 @@ default math plots:
   cleaned point instead of dropping most of the scan.
 - Used tiny opaque points instead of large transparent points to reduce visual
   sludge from depth sorting.
-- Applied a render-only `Rx(+90°)` posture correction so the Eagle is upright in
-  the saved PNGs.
+- Applied a render-only `Rx(180°)` + `Rz(90°)` posture correction so the Eagle is
+  upright in the saved PNGs.
 - Locked X/Y/Z to one shared physical range so the rendered object is not warped.
 - Switched to an orthographic, low 3/4 camera angle after the object itself was
   stood upright.
