@@ -197,8 +197,12 @@ class AdvancedPipeline(Pipeline):
 
             theta = arccos(n0 dot n1)
 
-        If theta is above the threshold, that edge is interesting. In robot path
-        terms, these are the places I would inspect first for AutoEdge-style paths.
+        If theta is above the threshold, that edge is interesting. For a
+        spray-painting workflow, these are the places I would inspect first:
+        corners, feather ridges, plinth edges, and wing-body transitions where
+        the nozzle may need slower motion, different standoff distance, or extra
+        overlap.
+
         Mesh = graph, faces = nodes, shared edges = adjacency. Once I saw it like
         that, the implementation became pretty direct.
         """

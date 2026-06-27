@@ -85,7 +85,7 @@ Tests:
 | 5 | [Cluster 4](docs/renders/05_cluster_04.png) | Next largest extracted cluster |
 | 6 | [Registered](docs/renders/06_registered.png) | Simulated second scan aligned back to target |
 | 7 | [Poisson Mesh](docs/renders/07_poisson_mesh.png) | Mesh sampled back to points for a lightweight render |
-| 8 | [Feature Edges](docs/renders/08_feature_edges.png) | Detected sharp edges from mesh dihedral angles |
+| 8 | [Feature Edges](docs/renders/08_feature_edges.png) | Sharp mesh transitions useful for spray-paint coverage checks |
 
 The clustered render is mostly one dominant color because the Eagle sculpture is
 one physically connected object. With `eps=0.10` and `min_points=50`, DBSCAN finds
@@ -154,6 +154,20 @@ Main modules:
 - `src/pipeline.py` orchestrates the required assignment pipeline.
 - `src/advanced_pipeline.py` extends the base pipeline with registration,
   reconstruction, and feature edge extraction.
+
+## Why The Advanced Pipeline Matters
+
+The extra stages are framed around spray-paint coverage on the Eagle sculpture:
+
+- Registration simulates aligning two scans of the same object before planning.
+- Poisson reconstruction turns the point cloud into a dense surface, which is
+  easier to reason about than disconnected points when thinking about coverage.
+- Dihedral feature edges highlight ridges, corners, plinth boundaries, and
+  wing-body transitions where a spray nozzle may need slower motion, adjusted
+  standoff distance, or extra overlap.
+
+The base assignment is still fully contained in `src/pipeline.py`; the advanced
+pipeline is a separate extension so the required path stays simple.
 
 ## Tests
 
