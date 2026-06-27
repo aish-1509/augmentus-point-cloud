@@ -80,15 +80,17 @@ class Config:
     # The cap also keeps dense scan regions from dominating runtime.
 
     # ── Clustering (DBSCAN) ───────────────────────────────────────────────────
-    clustering_eps: float = 0.05
+    clustering_eps: float = 0.10
     # Maximum distance between two points to be considered neighbours in DBSCAN.
     # Must be larger than voxel_size (so adjacent voxel centres can reach each other)
     # and smaller than the gap between separate objects.
-    # After 2cm downsampling, nearby points on the same surface are usually around
-    # 2cm apart. A 5cm eps should connect points on the same surface, and still
-    # leave genuinely separated components apart.
+    # After actually measuring the cleaned Eagle cloud, the median nearest-neighbour
+    # spacing is about 1.4cm. My first 5cm guess sounded reasonable, but with
+    # min_points=50 it was still too strict and labelled the real scan as all noise.
+    # 10cm gives each surface patch enough local reach while still keeping separated
+    # components from collapsing into one giant blob.
     # eps < voxel_size: points cannot reach each other, so everything becomes noise.
-    # eps = 0.05: starting point for connected same-surface neighbours.
+    # eps = 0.10: data-driven starting point for this Eagle scan.
     # eps > real object gaps: separate components merge into one cluster.
     # Tune this first if clustering looks wrong.
 
