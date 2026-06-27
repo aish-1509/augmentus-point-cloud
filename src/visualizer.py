@@ -28,9 +28,10 @@ class Visualizer:
     are scaled independently, and large transparent points turn dense geometry
     into blurry sludge.
 
-    Current fix: lock one uniform 3D bounding box, render the cleaned Eagle cloud
-    without dropping points, use tiny opaque points, and choose a low 3/4 camera
-    angle so the bird reads upright instead of looking flattened from above.
+    Current fix: rotate the render-only numpy points from the scan's native
+    sideways frame into a Z-up plotting frame, lock one uniform 3D bounding box,
+    render the cleaned Eagle cloud without dropping points, and use tiny opaque
+    points so the silhouette comes from real scan density.
     """
 
     def __init__(self, output_dir: str = "docs/renders") -> None:
@@ -70,11 +71,25 @@ class Visualizer:
             # Fixed seed = reproducible PNGs. Same data, same render, no random diff noise.
             rng = np.random.default_rng(42)
             idx = rng.choice(len(pts), subsample, replace=False)
-            pts_r = pts[idx]
+            pts_r = pts[idx].copy()
             cols_r = np.asarray(pcd.colors)[idx] if pcd.has_colors() else None
         else:
-            pts_r = pts
+            pts_r = pts.copy()
             cols_r = np.asarray(pcd.colors) if pcd.has_colors() else None
+
+        # The Eagle scan is not stored in the same "upright" frame that matplotlib
+        # expects. Camera orbiting only changes where I look from; it cannot stand a
+        # sideways object up. This render-only rotation maps the scan's up direction
+        # into matplotlib's Z-up world without touching the actual pipeline data.
+        theta_x = np.radians(90.0)
+        rotation_x = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, np.cos(theta_x), -np.sin(theta_x)],
+                [0.0, np.sin(theta_x), np.cos(theta_x)],
+            ]
+        )
+        pts_r = pts_r @ rotation_x.T
 
         fig = plt.figure(figsize=(12, 10), facecolor="#050505")
         ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
@@ -133,9 +148,8 @@ class Visualizer:
         # Clean inspection render: no grid, no panes, no tick labels. Just geometry.
         ax.axis("off")
 
-        # Low 3/4 view: keeps the eagle more upright and avoids the top-down
-        # shoulder view that made the earlier render feel twisted.
-        ax.view_init(elev=15, azim=135)
+        # Normal low 3/4 view now that the point cloud itself has been stood up.
+        ax.view_init(elev=20, azim=-45)
 
         out_path = os.path.join(self._output_dir, filename)
         plt.savefig(
