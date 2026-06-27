@@ -1,15 +1,25 @@
+"""Unit tests for ClusterExtractor.
+
+Strictly uses synthetic two-blob manifold data: fast, deterministic, zero network
+overhead.
+"""
+
 import numpy as np
 import open3d as o3d
 
 from src.cluster_extractor import ClusterExtractor
 from src.config import Config
 
-# Bro wait. The Augmentus PDF literally says I need a test to "verify clustering
-# produces more than one segment".
-# I can't just feed it a random cube of points, because DBSCAN might just classify
-# the whole cube as ONE cluster if the density is uniform.
-# I need to intentionally engineer two completely separate topological islands
-# so I can mathematically guarantee the algorithm splits them.
+# ── THE BIG BRAIN DATA GEN ────────────────────────────────────────────────────
+# The prompt explicitly requires testing that we get >1 segment.
+# You can't test DBSCAN with uniform random noise; it'll just label everything as
+# one giant cluster or 100% noise.
+#
+# The 200-IQ move: engineer two tight Gaussian blobs in 3D space, separated by a
+# distance massively larger than `eps` (2.0m >> 0.05m). This makes DBSCAN's
+# density-reachability fail across the gap, so it has to split the islands.
+# Determinism fr.
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def _make_two_blobs(
@@ -17,14 +27,10 @@ def _make_two_blobs(
     separation: float = 2.0,
     spread: float = 0.02,
     seed: int = 42,
-):
-    # Generating two tight Gaussian distributions separated by 2 meters.
-    # Because 2.0m >> eps (0.05m), DBSCAN literally has no choice but to split them.
+) -> o3d.geometry.PointCloud:
+    """Spawn two Gaussian blobs separated by `separation` metres."""
     rng = np.random.default_rng(seed)
-
-    # Blob A at the origin
     a = rng.normal([0.0, 0.0, 0.0], spread, (n, 3))
-    # Blob B translated away
     b = rng.normal([separation, separation, separation], spread, (n, 3))
 
     pcd = o3d.geometry.PointCloud()
@@ -32,15 +38,96 @@ def _make_two_blobs(
     return pcd
 
 
+def _make_uneven_blobs(seed: int = 7) -> o3d.geometry.PointCloud:
+    """Spawn blobs with different sizes so sorting largest-first is testable."""
+    rng = np.random.default_rng(seed)
+    big = rng.normal([0.0, 0.0, 0.0], 0.015, (500, 3))
+    small = rng.normal([2.0, 2.0, 2.0], 0.015, (120, 3))
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(np.vstack([big, small]))
+    return pcd
+
+
 class TestClusterExtractor:
-    def test_produces_more_than_one_cluster(self):
-        # Fulfilling the exact assignment requirement rn
+    """
+    We don't do vibes-based testing anymore.
+
+    These tests use hard, deterministic geometry: two separated point islands.
+    If DBSCAN merges them, eps is too big. If it makes extra clusters, min_points
+    or spread is off. Either way, the test catches the topology bug fast.
+    """
+
+    def test_produces_more_than_one_cluster(self) -> None:
+        """Primary requirement: clustering must produce more than one segment."""
         pcd = _make_two_blobs()
         clusters = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
         ).extract(pcd)
 
-        # If this is 1, the eps is way too high or the data is overlapping.
-        assert len(clusters) > 1
+        assert len(clusters) > 1, (
+            f"Bro it completely failed to segment. Expected >1 cluster, got {len(clusters)}. "
+            "Check the clustering_eps threshold."
+        )
 
-    # Gonna add tests for sorting and RGB validation next commit.
+    def test_finds_exactly_two_blobs(self) -> None:
+        """
+        Two distinct topological islands should yield exactly two clusters.
+
+        If it finds 3, it's hallucinating fragments as clusters. If it finds 1,
+        eps is too big and bridged the gap.
+        """
+        pcd = _make_two_blobs(spread=0.01, separation=3.0)
+        clusters = ClusterExtractor(
+            Config(clustering_eps=0.05, clustering_min_points=10)
+        ).extract(pcd)
+
+        assert len(clusters) == 2, (
+            f"Algorithm is tweaking. Expected exactly 2, got {len(clusters)}."
+        )
+
+    def test_clusters_sorted_largest_first(self) -> None:
+        """
+        Downstream stages usually care about the main object first.
+
+        If extract() doesn't sort descending, the pipeline might try to process a
+        tiny dust cluster before the actual object. Massive L.
+        """
+        pcd = _make_uneven_blobs()
+        clusters = ClusterExtractor(
+            Config(clustering_eps=0.05, clustering_min_points=10)
+        ).extract(pcd)
+
+        sizes = [len(cluster.points) for cluster in clusters]
+        assert sizes == sorted(sizes, reverse=True), (
+            "List is not sorted largest-first. Downstream processing will brick."
+        )
+
+    def test_colored_cloud_preserves_point_count(self) -> None:
+        """Painting the cloud should not accidentally yeet points out of existence."""
+        pcd = _make_two_blobs()
+        colored = ClusterExtractor(
+            Config(clustering_eps=0.05, clustering_min_points=10)
+        ).get_colored_cloud(pcd)
+
+        assert len(colored.points) == len(pcd.points), "Bro where did the points go??"
+
+    def test_colored_cloud_has_valid_rgb(self) -> None:
+        """
+        RGB arrays must stay inside [0.0, 1.0].
+
+        If Open3D gets invalid RGB floats, renders can look blank, clipped, or just
+        deeply cursed.
+        """
+        pcd = _make_two_blobs()
+        colored = ClusterExtractor(
+            Config(clustering_eps=0.05, clustering_min_points=10)
+        ).get_colored_cloud(pcd)
+
+        assert colored.has_colors(), "Renderer returned a blank cloud."
+
+        cols = np.asarray(colored.colors)
+        assert cols.shape == (len(pcd.points), 3), "RGB matrix shape is completely busted."
+        assert np.all(cols >= 0.0) and np.all(cols <= 1.0), (
+            "RGB values out of bounds. Must be [0, 1]."
+        )
