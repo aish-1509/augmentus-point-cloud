@@ -29,8 +29,9 @@ class Visualizer:
     axis — the wing tip to plinth base span). Matplotlib is Z-up. Dropping Y-up data
     into a Z-up renderer lays the eagle on its side.
 
-    The solution: We apply Rx(90°) to the render-only arrays before plotting. This maps
-    Y → +Z so the eagle stands upright in matplotlib without touching the pipeline cloud.
+    The solution: We apply Rx(-90°) to the render-only arrays before plotting. This maps
+    the scanned Y axis into matplotlib's Z-up frame so the eagle stands upright without
+    touching the pipeline cloud.
     We also lock a uniform 3D bounding box to prevent matplotlib from stretching any axis.
     """
 
@@ -54,10 +55,10 @@ class Visualizer:
         """
         Saves a 3D scatter view of the cloud as a high-res PNG.
 
-        My experience writing generative AI pipelines at Panasonic reinforced the importance 
-        of state management. Mutating the raw pipeline point cloud just to format a plot 
-        can cause unexpected issues in downstream tasks. Therefore, all matrix math here 
-        is applied strictly to a `.copy()` of the numpy array to ensure state immutability.
+        The original Open3D point cloud should stay untouched just because I need
+        a nicer PNG. All render-specific matrix math is applied to a `.copy()` of
+        the numpy array, so the visual orientation fix cannot leak back into the
+        processing pipeline.
         """
         pts = np.asarray(pcd.points)
         if len(pts) == 0:
@@ -80,7 +81,7 @@ class Visualizer:
         # Matplotlib is Z-up. Camera orbiting cannot fix this; the data itself must
         # be re-framed before scatter() receives it.
         #
-        # Rx(90°) maps:  X → X,  Y → +Z,  Z → -Y
+        # Rx(-90°) maps:  X -> X,  Y -> -Z,  Z -> +Y
         # This stands the eagle upright in matplotlib's Z-up coordinate system.
         # All operations are applied to a copy — the pipeline cloud is never mutated.
         theta_x = np.radians(-90.0)
@@ -152,9 +153,8 @@ class Visualizer:
         # Clean inspection render: no grid, no panes, no numbers. Just geometry.
         ax.axis("off")
 
-        # 3/4 front-right camera angle: elev=20 (slightly above), azim=225
-        # puts the camera behind-and-right, matching the natural viewing angle
-        # for an eagle statue on a plinth.
+        # Low 3/4 front view after the render-only rotation. This keeps the
+        # plinth grounded while still showing the wing/body geometry.
         ax.view_init(elev=15, azim=30)
 
         out_path = os.path.join(self._output_dir, filename)

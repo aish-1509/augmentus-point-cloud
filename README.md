@@ -84,6 +84,12 @@ Tests:
 | 7 | [Poisson Mesh](docs/renders/07_poisson_mesh.png) | Mesh sampled back to points for a lightweight render |
 | 8 | [Feature Edges](docs/renders/08_feature_edges.png) | Detected sharp edges from mesh dihedral angles |
 
+The clustered render is mostly one dominant color because the Eagle sculpture is
+one physically connected object. With `eps=0.10` and `min_points=50`, DBSCAN finds
+one main body cluster with `314,018` points, plus 12 small fragments and `814`
+noise points. That is expected for this scan: the clustering stage separates small
+disconnected regions without forcing the main sculpture body apart.
+
 ## Render Reflection
 
 The first render pass was technically correct, but visually it was not doing the
