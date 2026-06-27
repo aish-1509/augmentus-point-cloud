@@ -1,15 +1,15 @@
-"""Preprocessing notes.
+"""Preprocessing: make the raw cloud smaller and less noisy before analysis.
 
-The easy mistake here is to run outlier removal on the huge raw scan first.
-That works in theory, but it makes Open3D do nearest-neighbour work on far more
-points than needed. I downsample first because it turns the cloud from something
-like millions of points into something closer to tens of thousands. Same idea,
-much less work.
+Main thing I had to understand here:
 
-The other small gotcha is `remove_statistical_outlier`. It returns two things:
-the cleaned cloud first, then the indices of the points it kept. I only need the
-cloud here, so the code is `clean, _ = ...`. The underscore is just the normal
-Python way of saying, "I know this value exists, but I am not using it here."
+- Downsample first. The Eagle scan starts huge, so doing nearest-neighbour
+  outlier removal immediately would make Open3D do a lot of expensive search
+  work on points I am going to throw away anyway.
+- Then run SOR. At that point the cloud is already much smaller, so the same
+  cleanup step is way cheaper.
+- `clean, _ = ...` is not magic. Open3D returns two values: the cleaned cloud and
+  the inlier indices. I only need the cloud here, so `_` is just Python shorthand
+  for "yep, I know this exists, but I am intentionally ignoring it."
 """
 
 import logging
@@ -22,81 +22,92 @@ logger = logging.getLogger(__name__)
 
 
 class Preprocessor:
-    """Filters and density-reduces a raw point cloud.
+    """Filters and density-reduces a raw point cloud before analysis.
 
-    Two operations, run in sequence:
-    1. Voxel downsampling - reduces point count while preserving shape.
-    2. Statistical outlier removal - removes scanner ghost points.
+    Two operations run in this specific order:
+    1. Voxel downsampling first - cuts the raw cloud down to a smaller one.
+    2. Statistical Outlier Removal second - removes scanner ghost points.
 
-    Responsibility: cleaning the raw cloud so normals and clustering are stable.
+    Why this order matters:
+    SOR computes nearest-neighbour distances. That search is expensive, so I want
+    it running on the reduced cloud, not the full raw scan.
+
+    Design choice:
+    Each operation is a separate method. That way tests can check downsampling
+    and outlier removal independently instead of blaming the whole pipeline.
     """
 
     def __init__(self, config: Config) -> None:
-        """
-        Args:
-            config: Pipeline configuration object. All parameters are read from here.
-        """
-        self.voxel_size = config.voxel_size
-        self.nb_neighbors = config.sor_nb_neighbors
-        self.std_ratio = config.sor_std_ratio
+        # Private-ish attrs: underscore means "internal, pls don't poke directly".
+        self._voxel_size = config.voxel_size
+        self._nb_neighbors = config.sor_nb_neighbors
+        self._std_ratio = config.sor_std_ratio
 
     def downsample(self, pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
-        """Voxel-grid downsample the cloud.
-
-        Divides 3D space into cubes of side voxel_size. All points inside
-        each cube are replaced with their centroid - one point per cube.
+        """Voxel-grid downsample: one centroid per occupied voxel cube.
 
         Args:
-            pcd: Input point cloud.
+            pcd: Input cloud.
 
         Returns:
-            A new PointCloud with at most one point per voxel cell.
+            New PointCloud with the same or fewer points than the input.
         """
         before = len(pcd.points)
-        downsampled = pcd.voxel_down_sample(self.voxel_size)
-        after = len(downsampled.points)
+        result = pcd.voxel_down_sample(self._voxel_size)
+        after = len(result.points)
 
-        logger.info("Voxel downsample: %s -> %s points", f"{before:,}", f"{after:,}")
-        return downsampled
+        reduction_pct = 0.0
+        if before:
+            reduction_pct = (1 - after / before) * 100
+
+        logger.info(
+            "Voxel downsample (%.3fm): %s -> %s pts (%.1f%% reduction)",
+            self._voxel_size,
+            f"{before:,}",
+            f"{after:,}",
+            reduction_pct,
+        )
+        return result
 
     def remove_outliers(self, pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
-        """Statistical outlier removal.
+        """Statistical Outlier Removal: trims floating ghost points.
 
-        For every point, computes the mean distance to its nb_neighbors
-        nearest neighbours. Points whose mean distance exceeds
-        (global_mean + std_ratio * std_deviation) are removed.
+        For each point P:
+        1. Find the nb_neighbors nearest neighbours.
+        2. Compute mean distance from P to those neighbours.
+        3. Remove P if that distance is too far from the global pattern.
+
+        std_ratio=2.0 is the 2-sigma rule: it aims at the outer edge of the
+        distance distribution instead of attacking normal surface points.
 
         Args:
-            pcd: Downsampled point cloud.
+            pcd: Downsampled cloud.
 
         Returns:
-            A new PointCloud with noise points removed.
+            New PointCloud with outlier points removed.
         """
         before = len(pcd.points)
-        # Open3D returns (cleaned_cloud, kept_point_indices).
-        # I am deliberately keeping only the cleaned cloud here.
-        clean, _ = pcd.remove_statistical_outlier(
-            nb_neighbors=self.nb_neighbors,
-            std_ratio=self.std_ratio,
-        )
-        removed = before - len(clean.points)
 
-        logger.info("SOR removed %d outlier points", removed)
+        # Returns (clean_pcd, inlier_index_list).
+        # `_` discards the index list because this stage only needs clean_pcd.
+        clean, _ = pcd.remove_statistical_outlier(
+            nb_neighbors=self._nb_neighbors,
+            std_ratio=self._std_ratio,
+        )
+
+        removed = before - len(clean.points)
+        logger.info(
+            "SOR (nb_neighbors=%d, std_ratio=%.1f): removed %d ghost points",
+            self._nb_neighbors,
+            self._std_ratio,
+            removed,
+        )
         return clean
 
     def preprocess(self, pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
-        """Run the full preprocessing chain: downsample then remove outliers.
+        """Full preprocessing chain: downsample, then remove outliers.
 
-        This is the method the Pipeline calls. Keeping downsample and
-        remove_outliers separate lets unit tests verify each step independently.
-
-        Args:
-            pcd: Raw loaded point cloud.
-
-        Returns:
-            Clean, downsampled point cloud ready for normal estimation.
+        This is what Pipeline calls. The separate methods stay public because
+        tests should be able to verify each step on its own.
         """
-        # Order matters: doing SOR after downsampling makes the neighbour search
-        # much cheaper, while still cleaning the points used by later stages.
-        downsampled = self.downsample(pcd)
-        return self.remove_outliers(downsampled)
+        return self.remove_outliers(self.downsample(pcd))
