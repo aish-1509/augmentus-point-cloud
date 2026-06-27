@@ -20,19 +20,18 @@ class Visualizer:
     Saves point clouds to PNGs so we can visually inspect the pipeline's output.
 
     Design Notes:
-    Matplotlib's 3D scatter is strictly CPU-bound and lacks a true hardware Z-buffer. 
-    If we pass 1.5M points into it with transparency or large point sizes, the Painter's 
-    Algorithm simply draws background points over foreground points. This turns dense, 
+    Matplotlib's 3D scatter is strictly CPU-bound and lacks a true hardware Z-buffer.
+    If we pass 1.5M points into it with transparency or large point sizes, the Painter's
+    Algorithm simply draws background points over foreground points. This turns dense,
     intricate geometry into a blurry output, which isn't ideal.
 
-    Additionally, the hardware scanner used for the Eagle dataset appears to have been 
-    calibrated upside down (Z-axis inverted). Matplotlib is strictly Z-up. Dropping 
-    inverted data into a Z-up environment causes the object to render completely upside down. 
-    
-    The solution: We apply a strict linear algebra affine transformation to the render-only 
-    arrays. We flip the object upright, lock a uniform 3D bounding box to prevent Matplotlib 
-    from stretching it, and render the cleaned Eagle cloud at max density with opaque, 
-    microscopic points to preserve data fidelity.
+    The Eagle dataset is stored Y-up (the bounding box Y range at ~8.6m is the tallest
+    axis — the wing tip to plinth base span). Matplotlib is Z-up. Dropping Y-up data
+    into a Z-up renderer lays the eagle on its side.
+
+    The solution: We apply Rx(90°) to the render-only arrays before plotting. This maps
+    Y → +Z so the eagle stands upright in matplotlib without touching the pipeline cloud.
+    We also lock a uniform 3D bounding box to prevent matplotlib from stretching any axis.
     """
 
     def __init__(self, output_dir: str = "docs/renders") -> None:
@@ -76,28 +75,21 @@ class Visualizer:
             pts_r = pts.copy()
             cols_r = np.asarray(pcd.colors) if pcd.has_colors() else None
 
-        # ── LINEAR ALGEBRA POSTURE FIX ─────────────────────────────────────────
-        # Camera orbiting only changes the viewing angle; it cannot fix intrinsic 
-        # object posture. We need to physically rotate the data for the render.
-        # 
-        # 1. Rx(180): 180-degree rotation around X to fix the inverted Z-axis.
-        theta_x = np.radians(180.0)
+        # ── COORDINATE FRAME CORRECTION ────────────────────────────────────────
+        # The Eagle dataset is Y-up (measured: Y range ≈ 8.6m, the tallest axis).
+        # Matplotlib is Z-up. Camera orbiting cannot fix this; the data itself must
+        # be re-framed before scatter() receives it.
+        #
+        # Rx(90°) maps:  X → X,  Y → +Z,  Z → -Y
+        # This stands the eagle upright in matplotlib's Z-up coordinate system.
+        # All operations are applied to a copy — the pipeline cloud is never mutated.
+        theta_x = np.radians(-90.0)
         rx = np.array([
-            [1.0, 0.0, 0.0],
-            [0.0, np.cos(theta_x), -np.sin(theta_x)],
-            [0.0, np.sin(theta_x), np.cos(theta_x)],
+            [1.0, 0.0,              0.0             ],
+            [0.0, np.cos(theta_x), -np.sin(theta_x) ],
+            [0.0, np.sin(theta_x),  np.cos(theta_x) ],
         ])
-        
-        # 2. Rz(90): 90-degree yaw around Z to rotate the eagle into a 3/4 profile.
-        theta_z = np.radians(90.0)
-        rz = np.array([
-            [np.cos(theta_z), -np.sin(theta_z), 0.0],
-            [np.sin(theta_z), np.cos(theta_z), 0.0],
-            [0.0, 0.0, 1.0],
-        ])
-        
-        # Matrix multiply the points: pts_r @ (Rz @ Rx)^T
-        pts_r = pts_r @ (rz @ rx).T
+        pts_r = pts_r @ rx.T
         # ───────────────────────────────────────────────────────────────────────
 
         # Dark background for better contrast
@@ -105,17 +97,28 @@ class Visualizer:
         ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
         ax.set_proj_type("ortho")
 
-        # Microscopic point sizes (s=0.05), zero edges, zero depth shade.
-        # We want the silhouette to emerge purely from the density of the points.
+        # Scale point size inversely with density. Dense clouds (100K+) need microscopic
+        # points so the silhouette emerges from density alone. Sparse clusters (< 1K)
+        # need larger points or they become invisible at 300dpi on a dark background.
+        n = len(pts_r)
+        if n >= 100_000:
+            pt_size = 0.05
+        elif n >= 10_000:
+            pt_size = 0.3
+        elif n >= 1_000:
+            pt_size = 1.5
+        else:
+            pt_size = 10.0
+
         if cols_r is not None:
             ax.scatter(
                 pts_r[:, 0], pts_r[:, 1], pts_r[:, 2],
-                c=cols_r, s=0.05, linewidths=0, edgecolors="none", alpha=1.0, depthshade=False,
+                c=cols_r, s=pt_size, linewidths=0, edgecolors="none", alpha=1.0, depthshade=False,
             )
         else:
             ax.scatter(
                 pts_r[:, 0], pts_r[:, 1], pts_r[:, 2],
-                c="#00ffcc", s=0.05, linewidths=0, edgecolors="none", alpha=1.0, depthshade=False,
+                c="#00ffcc", s=pt_size, linewidths=0, edgecolors="none", alpha=1.0, depthshade=False,
             )
 
         full_count = len(pts)
@@ -149,9 +152,10 @@ class Visualizer:
         # Clean inspection render: no grid, no panes, no numbers. Just geometry.
         ax.axis("off")
 
-        # Straight-on camera (azim=0) slightly above eye-level (elev=20) 
-        # since the render-only yaw handles the orientation.
-        ax.view_init(elev=20, azim=0)
+        # 3/4 front-right camera angle: elev=20 (slightly above), azim=225
+        # puts the camera behind-and-right, matching the natural viewing angle
+        # for an eagle statue on a plinth.
+        ax.view_init(elev=15, azim=30)
 
         out_path = os.path.join(self._output_dir, filename)
         plt.savefig(
