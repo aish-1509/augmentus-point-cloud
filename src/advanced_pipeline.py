@@ -20,17 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 class AdvancedPipeline(Pipeline):
-    """
-    Extends Pipeline with registration, reconstruction, and edge detection.
+    """Extends Pipeline with registration, reconstruction, and edge detection.
 
-    OOP brain dump:
-    I'm using INHERITANCE here, which can be a massive L if it gets abused, but
-    this is the clean textbook case for the "O" in SOLID: Open/Closed Principle.
-
-    AdvancedPipeline IS-A Pipeline. It runs the normal pipeline with `super().run()`,
-    then adds extra stages after it. That means the base `pipeline.py` stays closed
-    for modification but open for extension. We get the advanced sauce without
-    breaking the simpler pipeline. Aura preserved.
+    This class uses inheritance as an explicit extension point: the base pipeline
+    remains responsible for the required assignment stages, while the advanced
+    pipeline adds optional geometry-processing stages afterward. That follows the
+    Open/Closed Principle without complicating the simpler pipeline path.
     """
 
     def __init__(self, config: Config | None = None) -> None:
@@ -47,12 +42,13 @@ class AdvancedPipeline(Pipeline):
     ) -> tuple[o3d.geometry.PointCloud, o3d.pipelines.registration.Feature]:
         """Downsample and compute FPFH features for global registration.
 
-        FPFH is kinda like a geometry fingerprint. Absolute xyz coords are fragile
-        because the object might move, but local neighbourhood shape is more stable.
+        FPFH acts like a local geometry fingerprint. Absolute xyz coordinates are
+        fragile because the object might move, but local neighbourhood shape is
+        more stable.
         A corner should still "feel" like a corner after rotation/translation.
 
         So the move is:
-        1. Downsample so matching is not cooked by raw point count.
+        1. Downsample so matching is not dominated by raw point count.
         2. Estimate normals because FPFH needs local surface direction.
         3. Build the feature descriptors that RANSAC can match.
         """
@@ -82,14 +78,14 @@ class AdvancedPipeline(Pipeline):
     ) -> o3d.pipelines.registration.RegistrationResult:
         """Find a rough source->target alignment with FPFH + RANSAC.
 
-        ICP from a cold start is not the vibe. If the scans start too far apart,
-        ICP can fall into the nearest local minimum and confidently be wrong.
+        ICP from a cold start can fail when the scans start too far apart, because
+        it may converge to a local minimum.
 
         RANSAC is the rough-match phase: it tries feature correspondences and
         rejects nonsense transforms until it finds a decent initial alignment.
-        Then local ICP can refine instead of flailing.
+        Then local ICP can refine from a reasonable starting transform.
         """
-        logger.info("Cooking FPFH features for global registration...")
+        logger.info("Computing FPFH features for global registration...")
         src_down, src_feat = self._prepare_for_fpfh(source, voxel_size)
         tgt_down, tgt_feat = self._prepare_for_fpfh(target, voxel_size)
 
@@ -120,9 +116,10 @@ class AdvancedPipeline(Pipeline):
     ) -> o3d.pipelines.registration.RegistrationResult:
         """Refine alignment using point-to-plane ICP.
 
-        Point-to-point ICP only chases nearest xyz points. Fine, but kinda basic.
+        Point-to-point ICP only minimizes nearest xyz point distances.
         Point-to-plane ICP uses target normals, so it minimizes distance along the
-        surface direction. For smooth scanned geometry, that is way less jittery.
+        surface direction. For smooth scanned geometry, that is usually more
+        stable.
         """
         init = initial_transform if initial_transform is not None else np.eye(4)
 
@@ -149,7 +146,6 @@ class AdvancedPipeline(Pipeline):
     ) -> tuple[o3d.geometry.TriangleMesh, np.ndarray]:
         """Turn oriented points into a watertight mesh with Poisson reconstruction.
 
-        Math jump scare, but in human words:
         Poisson tries to recover an inside/outside function from the normal vector
         field. The formal shape is:
 
@@ -158,14 +154,14 @@ class AdvancedPipeline(Pipeline):
         V is the normal field. chi is the indicator field. Once chi exists, the
         surface is basically the boundary where inside flips to outside.
 
-        `depth=8` controls octree detail. Too low = melted toy. Too high = RAM
-        starts sending a resignation email. 8 is the sane middle for this scale.
+        `depth=8` controls octree detail. Lower values lose shape detail; higher
+        values increase memory and runtime. 8 is a practical middle for this scan.
         """
         if not pcd.has_normals():
             raise ValueError("Poisson needs oriented normals. Run NormalEstimator first.")
 
         logger.info(
-            "Running Poisson reconstruction (depth=%d). Let it cook...",
+            "Running Poisson reconstruction (depth=%d).",
             self._poisson_depth,
         )
         mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
@@ -240,9 +236,9 @@ class AdvancedPipeline(Pipeline):
     def run_advanced(self) -> dict[str, object]:
         """Run base pipeline, then advanced geometry stages.
 
-        Vibes are not enough for production code. I want metrics and artifacts:
-        RANSAC/ICP fitness, RMSE, Poisson mesh render, and feature-edge count.
-        That way the README can show actual outputs, not just "trust me bro".
+        The advanced stages report concrete metrics and artifacts: RANSAC/ICP
+        fitness, RMSE, a Poisson mesh render, and feature-edge counts. Those
+        outputs make the extended pipeline easier to evaluate and debug.
         """
         results = self.run()
         with_normals = results["with_normals"]
@@ -282,7 +278,7 @@ class AdvancedPipeline(Pipeline):
             self._subsample,
         )
         logger.info(
-            "Registration secured: fitness=%.4f, RMSE=%.6f",
+            "Registration complete: fitness=%.4f, RMSE=%.6f",
             icp_result.fitness,
             icp_result.inlier_rmse,
         )
@@ -325,7 +321,7 @@ class AdvancedPipeline(Pipeline):
         results["feature_edges"] = feature_edges
 
         logger.info("=" * 55)
-        logger.info("ADVANCED PIPELINE COMPLETE. We actually cooked here.")
+        logger.info("ADVANCED PIPELINE COMPLETE.")
         logger.info("=" * 55)
 
         return results

@@ -27,29 +27,15 @@ logger = logging.getLogger(__name__)
 
 
 class Pipeline:
-    """
-    Orchestrates the entire point cloud processing lifecycle.
+    """Orchestrates the complete point cloud processing lifecycle.
 
-    OOP brain dump, bc this is where architecture either gets clean or turns into
-    cursed spaghetti:
+    The pipeline uses composition rather than inheritance. It owns one instance
+    of each processing component and coordinates their handoff order, while each
+    component keeps responsibility for its own implementation details.
 
-    I'm using COMPOSITION over inheritance here.
-    Pipeline should not inherit from Loader, Preprocessor, NormalEstimator, etc.
-    If it did, it would become a God Object. Tight coupling = negative aura fr.
-    One tiny DBSCAN change should not make the whole pipeline class feel cooked.
-
-    By using composition, Pipeline just *has* the tools. It acts like the
-    coordinator. It does not pretend to know the PCA math inside NormalEstimator;
-    it just knows the next correct handoff.
-
-    Why this design is a W:
-    1. Independent testability: I can test one component without the others crying.
-    2. Hot-swapping: if DBSCAN changes later, Pipeline barely flinches.
-    3. SRP: Pipeline does one thing - dictates the flow and keeps the receipts.
-
-    Tiny self-check:
-    If a class cannot be explained in one clean sentence, it's probably doing too
-    much. Pipeline's sentence is: run the stages in order and return the outputs.
+    This keeps the stages independently testable and makes the pipeline easier to
+    extend: changing clustering, rendering, or normal estimation should not
+    require rewriting the orchestration layer.
     """
 
     def __init__(self, config: Config | None = None) -> None:
@@ -57,8 +43,7 @@ class Pipeline:
             config = Config()
         self._config = config
 
-        # Instantiating the decoupled squad.
-        # Each tool owns its own logic. Pipeline just lines them up. W design.
+        # Each tool owns its own logic. Pipeline only coordinates the stage order.
         self._loader = Loader()
         self._preprocessor = Preprocessor(config)
         self._normal_estimator = NormalEstimator(config)
@@ -69,10 +54,9 @@ class Pipeline:
     def run(self) -> dict[str, Any]:
         """Run every stage and return the intermediate outputs.
 
-        Returning the dict is a sweaty but useful move for downstream debugging.
-        If I want to inspect clusters later, I do NOT want to rerun a huge point
-        cloud through O(N log N) neighbour searches just to get the same objects.
-        This keeps the receipts fr.
+        Returning the dict keeps intermediate results available for debugging and
+        extension. Downstream code can inspect clusters, normals, or renders
+        without rerunning the full point cloud pipeline.
         """
         results: dict[str, Any] = {}
 
@@ -90,7 +74,7 @@ class Pipeline:
 
         # ── Stage 2: Preprocess ───────────────────────────────────────────────
         logger.info("=" * 55)
-        logger.info("STAGE 2 - Preprocessing (voxel downsample + SOR cooking)")
+        logger.info("STAGE 2 - Preprocessing (voxel downsample + SOR)")
         preprocessed = self._preprocessor.preprocess(raw)
         self._visualizer.save_render(
             preprocessed,
@@ -102,7 +86,7 @@ class Pipeline:
 
         # ── Stage 3: Normal estimation ────────────────────────────────────────
         logger.info("=" * 55)
-        logger.info("STAGE 3 - Surface normal estimation (PCA time)")
+        logger.info("STAGE 3 - Surface normal estimation")
         with_normals = self._normal_estimator.estimate(preprocessed)
         self._visualizer.save_normals_render(
             with_normals,
@@ -143,7 +127,7 @@ class Pipeline:
 
         # ── Summary ───────────────────────────────────────────────────────────
         logger.info("=" * 55)
-        logger.info("PIPELINE COMPLETE. WE COOKED.")
+        logger.info("PIPELINE COMPLETE.")
         logger.info(
             "  %s raw pts -> %s clean pts -> %d clusters extracted",
             f"{len(raw.points):,}",
