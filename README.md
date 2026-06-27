@@ -61,7 +61,7 @@ Base pipeline:
 Advanced pipeline:
 ICP fitness = 1.0000
 ICP RMSE    = 0.000000
-Feature edges above 20 degrees = 32,921
+Feature edges above 20 degrees = 32,917
 
 Tests:
 11 passed
@@ -83,6 +83,28 @@ Tests:
 | 6 | [Registered](docs/renders/06_registered.png) | Simulated second scan aligned back to target |
 | 7 | [Poisson Mesh](docs/renders/07_poisson_mesh.png) | Mesh sampled back to points for a lightweight render |
 | 8 | [Feature Edges](docs/renders/08_feature_edges.png) | Detected sharp edges from mesh dihedral angles |
+
+## Render Reflection
+
+The first render pass was technically correct, but visually it was not doing the
+data justice. Matplotlib's default 3D plot style made the Eagle scan look too
+sparse: white background, grey gridlines, tiny points, and an average camera
+angle. The geometry was working under the hood, but the images did not communicate
+that clearly.
+
+I treated the second pass more like a visual inspection artifact than a math plot:
+
+- Removed axes and gridlines so the point cloud is the only subject in the frame.
+- Switched to a dark background so cluster colors and normal-map colors have real
+  contrast.
+- Increased render subsampling from `8,000` to `50,000` points so the shape reads
+  as a solid scanned object instead of a dust cloud.
+- Fixed the camera angle for consistent inspection across all stages.
+- Used deterministic subsampling so rerunning the pipeline does not create random
+  visual diffs in Git.
+
+The important detail: this only changes rendering. The actual processing pipeline
+still uses the full point cloud at every stage.
 
 ## Architecture
 

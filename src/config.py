@@ -107,9 +107,10 @@ class Config:
     output_dir: str = "docs/renders"
     # Directory where all PNG renders are written. Created automatically if absent.
 
-    render_subsample: int = 8000
-    # Matplotlib 3D scatter slows badly past ~10k points.
-    # Rendering 50k points can take 30-60 seconds and create huge images.
-    # Around 8k points is usually enough to see the shape clearly in a PNG, and it
-    # renders much faster.
+    render_subsample: int = 50000
+    # Matplotlib 3D scatter is still CPU-rendered, so I do not want to throw the
+    # full 316k cleaned points into every PNG.
+    # But the first 8k render pass looked too thin, like the eagle was turning
+    # into dust. 50k is the better presentation tradeoff: denser, more solid,
+    # still quick enough on my laptop.
     # Actual processing always uses the full cloud; this only affects image output.
