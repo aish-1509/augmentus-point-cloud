@@ -1,3 +1,10 @@
+"""Advanced pipeline: registration, Poisson meshing, and feature edges.
+
+Run from the project root:
+
+python -m src.advanced_pipeline
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,13 +21,16 @@ logger = logging.getLogger(__name__)
 
 class AdvancedPipeline(Pipeline):
     """
-    Bro wait. I need to show them I actually understand their Scan-to-Path product.
-    Base pipeline is cool, but Augmentus actually does global registration, Poisson
-    surface meshing, and edge detection for robot welding. I'm gonna build that here.
+    Extends Pipeline with registration, reconstruction, and edge detection.
 
-    OOP Check: I'm INHERITING from Pipeline.
-    Usually inheritance is mid, but here it's actually the Open/Closed Principle.
-    I am extending the functionality without touching the original Pipeline class. W.
+    OOP brain dump:
+    I'm using INHERITANCE here, which can be a massive L if it gets abused, but
+    this is the clean textbook case for the "O" in SOLID: Open/Closed Principle.
+
+    AdvancedPipeline IS-A Pipeline. It runs the normal pipeline with `super().run()`,
+    then adds extra stages after it. That means the base `pipeline.py` stays closed
+    for modification but open for extension. We get the advanced sauce without
+    breaking the simpler pipeline. Aura preserved.
     """
 
     def __init__(self, config: Config | None = None) -> None:
@@ -28,31 +38,299 @@ class AdvancedPipeline(Pipeline):
         self._poisson_depth = 8
         self._edge_threshold_deg = 20.0
 
-    def run_advanced(self):
-        # run the base stuff first
+    # -- REGISTRATION ---------------------------------------------------------
+
+    def _prepare_for_fpfh(
+        self,
+        pcd: o3d.geometry.PointCloud,
+        voxel_size: float,
+    ) -> tuple[o3d.geometry.PointCloud, o3d.pipelines.registration.Feature]:
+        """Downsample and compute FPFH features for global registration.
+
+        FPFH is kinda like a geometry fingerprint. Absolute xyz coords are fragile
+        because the object might move, but local neighbourhood shape is more stable.
+        A corner should still "feel" like a corner after rotation/translation.
+
+        So the move is:
+        1. Downsample so matching is not cooked by raw point count.
+        2. Estimate normals because FPFH needs local surface direction.
+        3. Build the feature descriptors that RANSAC can match.
+        """
+        down = pcd.voxel_down_sample(voxel_size * 2)
+        down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(
+                radius=voxel_size * 4,
+                max_nn=30,
+            )
+        )
+        down.orient_normals_consistent_tangent_plane(50)
+
+        fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+            down,
+            o3d.geometry.KDTreeSearchParamHybrid(
+                radius=voxel_size * 10,
+                max_nn=100,
+            ),
+        )
+        return down, fpfh
+
+    def global_registration(
+        self,
+        source: o3d.geometry.PointCloud,
+        target: o3d.geometry.PointCloud,
+        voxel_size: float = 0.05,
+    ) -> o3d.pipelines.registration.RegistrationResult:
+        """Find a rough source->target alignment with FPFH + RANSAC.
+
+        ICP from a cold start is not the vibe. If the scans start too far apart,
+        ICP can fall into the nearest local minimum and confidently be wrong.
+
+        RANSAC is the rough-match phase: it tries feature correspondences and
+        rejects nonsense transforms until it finds a decent initial alignment.
+        Then local ICP can refine instead of flailing.
+        """
+        logger.info("Cooking FPFH features for global registration...")
+        src_down, src_feat = self._prepare_for_fpfh(source, voxel_size)
+        tgt_down, tgt_feat = self._prepare_for_fpfh(target, voxel_size)
+
+        return o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+            src_down,
+            tgt_down,
+            src_feat,
+            tgt_feat,
+            True,
+            voxel_size * 1.5,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+            3,
+            [
+                o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+                o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
+                    voxel_size * 1.5
+                ),
+            ],
+            o3d.pipelines.registration.RANSACConvergenceCriteria(100_000, 0.999),
+        )
+
+    def local_registration(
+        self,
+        source: o3d.geometry.PointCloud,
+        target: o3d.geometry.PointCloud,
+        initial_transform: np.ndarray | None = None,
+        max_dist: float = 0.02,
+    ) -> o3d.pipelines.registration.RegistrationResult:
+        """Refine alignment using point-to-plane ICP.
+
+        Point-to-point ICP only chases nearest xyz points. Fine, but kinda basic.
+        Point-to-plane ICP uses target normals, so it minimizes distance along the
+        surface direction. For smooth scanned geometry, that is way less jittery.
+        """
+        init = initial_transform if initial_transform is not None else np.eye(4)
+
+        target_for_icp = target
+        if not target_for_icp.has_normals():
+            target_for_icp = self._normal_estimator.estimate(
+                o3d.geometry.PointCloud(target_for_icp)
+            )
+
+        return o3d.pipelines.registration.registration_icp(
+            source,
+            target_for_icp,
+            max_dist,
+            init,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100),
+        )
+
+    # -- POISSON RECONSTRUCTION -----------------------------------------------
+
+    def poisson_reconstruction(
+        self,
+        pcd: o3d.geometry.PointCloud,
+    ) -> tuple[o3d.geometry.TriangleMesh, np.ndarray]:
+        """Turn oriented points into a watertight mesh with Poisson reconstruction.
+
+        Math jump scare, but in human words:
+        Poisson tries to recover an inside/outside function from the normal vector
+        field. The formal shape is:
+
+            laplacian(chi) = divergence(V)
+
+        V is the normal field. chi is the indicator field. Once chi exists, the
+        surface is basically the boundary where inside flips to outside.
+
+        `depth=8` controls octree detail. Too low = melted toy. Too high = RAM
+        starts sending a resignation email. 8 is the sane middle for this scale.
+        """
+        if not pcd.has_normals():
+            raise ValueError("Poisson needs oriented normals. Run NormalEstimator first.")
+
+        logger.info(
+            "Running Poisson reconstruction (depth=%d). Let it cook...",
+            self._poisson_depth,
+        )
+        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+            pcd,
+            depth=self._poisson_depth,
+        )
+
+        density_array = np.asarray(densities)
+        if len(density_array) > 0:
+            # Poisson forces watertightness, so it can hallucinate thin ghost areas.
+            # Low-density vertices are the suspicious ones. Drop the weakest 5%.
+            mesh.remove_vertices_by_mask(density_array < np.quantile(density_array, 0.05))
+
+        return mesh, density_array
+
+    # -- EDGE DETECTION --------------------------------------------------------
+
+    def detect_feature_edges(
+        self,
+        mesh: o3d.geometry.TriangleMesh,
+    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
+        """Find sharp feature edges using dihedral angles between mesh faces.
+
+        The whole idea:
+        A smooth surface has neighbouring triangle normals pointing almost the
+        same way. A seam/corner has neighbouring normals that suddenly disagree.
+
+        So for every mesh edge shared by two triangles:
+
+            theta = arccos(n0 dot n1)
+
+        If theta is above the threshold, that edge is interesting. In robot path
+        terms, these are the places I would inspect first for AutoEdge-style paths.
+        Mesh = graph, faces = nodes, shared edges = adjacency. Once I saw it like
+        that, the implementation became pretty direct.
+        """
+        mesh.compute_triangle_normals()
+        verts = np.asarray(mesh.vertices)
+        tris = np.asarray(mesh.triangles)
+        face_normals = np.asarray(mesh.triangle_normals)
+
+        edge_to_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for face_id, tri in enumerate(tris):
+            for i in range(3):
+                edge = tuple(sorted((int(tri[i]), int(tri[(i + 1) % 3]))))
+                edge_to_faces[edge].append(face_id)
+
+        feature_edges: list[tuple[np.ndarray, np.ndarray, float]] = []
+        for edge, face_ids in edge_to_faces.items():
+            if len(face_ids) != 2:
+                continue
+
+            n0 = face_normals[face_ids[0]]
+            n1 = face_normals[face_ids[1]]
+
+            # Clip saves us from tiny floating point errors pushing dot outside [-1, 1].
+            dot = float(np.clip(np.dot(n0, n1), -1.0, 1.0))
+            angle_deg = float(np.degrees(np.arccos(dot)))
+
+            if angle_deg > self._edge_threshold_deg:
+                feature_edges.append((verts[edge[0]], verts[edge[1]], angle_deg))
+
+        logger.info(
+            "Detected %d feature edges above %.1f degrees",
+            len(feature_edges),
+            self._edge_threshold_deg,
+        )
+        return feature_edges
+
+    # -- ADVANCED RUN ----------------------------------------------------------
+
+    def run_advanced(self) -> dict[str, object]:
+        """Run base pipeline, then advanced geometry stages.
+
+        Vibes are not enough for production code. I want metrics and artifacts:
+        RANSAC/ICP fitness, RMSE, Poisson mesh render, and feature-edge count.
+        That way the README can show actual outputs, not just "trust me bro".
+        """
         results = self.run()
         with_normals = results["with_normals"]
+        if not isinstance(with_normals, o3d.geometry.PointCloud):
+            raise TypeError("Expected results['with_normals'] to be an Open3D PointCloud.")
 
-        # -- REGISTRATION --
-        # I need to simulate a second scan to show off registration.
-        # If I just use ICP (Iterative Closest Point) from a cold start, it's gonna
-        # completely fail if the clouds are rotated too much. My MacBook Pro is gonna
-        # take off like a jet engine trying to solve that.
-        # I need to do FPFH + RANSAC first to get a rough global match, THEN refine with ICP.
+        # Stage 5: registration
+        logger.info("=" * 55)
+        logger.info("STAGE 5 - Global + local registration")
+        angle = np.radians(45)
+        simulated_transform = np.array(
+            [
+                [np.cos(angle), -np.sin(angle), 0.0, 0.10],
+                [np.sin(angle), np.cos(angle), 0.0, 0.05],
+                [0.0, 0.0, 1.0, 0.02],
+                [0.0, 0.0, 0.0, 1.00],
+            ]
+        )
 
-        # -- POISSON --
-        # Need to turn the cloud into a watertight mesh. Poisson needs normals.
-        # Glad I did the PCA normals in the base pipeline.
+        source = o3d.geometry.PointCloud(with_normals)
+        source.transform(simulated_transform)
+        target = o3d.geometry.PointCloud(with_normals)
 
-        # -- EDGES --
-        # AutoEdge robot paths... how do I find a weld seam?
-        # It's literally just the dihedral angle between two adjacent triangles.
-        # If the angle is steep (>20 deg), it's a corner or a seam.
-        # I can just use dot products of the face normals for this. Easy.
+        ransac_result = self.global_registration(source, target)
+        icp_result = self.local_registration(
+            source,
+            target,
+            initial_transform=ransac_result.transformation,
+        )
 
-        # Gonna push this architecture thought process and actually code it next.
-        pass
+        aligned = o3d.geometry.PointCloud(source)
+        aligned.transform(icp_result.transformation)
+        self._visualizer.save_render(
+            aligned,
+            "06_registered.png",
+            f"Stage 5: ICP fitness={icp_result.fitness:.4f}",
+            self._subsample,
+        )
+        logger.info(
+            "Registration secured: fitness=%.4f, RMSE=%.6f",
+            icp_result.fitness,
+            icp_result.inlier_rmse,
+        )
+
+        results["registration_ransac"] = ransac_result
+        results["registration_icp"] = icp_result
+        results["registered"] = aligned
+
+        # Stage 6: Poisson reconstruction
+        logger.info("=" * 55)
+        logger.info("STAGE 6 - Poisson surface reconstruction")
+        mesh, densities = self.poisson_reconstruction(with_normals)
+        mesh_sample = mesh.sample_points_uniformly(number_of_points=8000)
+        self._visualizer.save_render(
+            mesh_sample,
+            "07_poisson_mesh.png",
+            "Stage 6: Watertight Poisson mesh sample",
+            self._subsample,
+        )
+        results["mesh"] = mesh
+        results["mesh_densities"] = densities
+
+        # Stage 7: feature edges
+        logger.info("=" * 55)
+        logger.info("STAGE 7 - Feature edge detection")
+        feature_edges = self.detect_feature_edges(mesh)
+
+        if feature_edges:
+            edge_points = np.vstack([[p0, p1] for p0, p1, _ in feature_edges])
+            edge_pcd = o3d.geometry.PointCloud()
+            edge_pcd.points = o3d.utility.Vector3dVector(edge_points)
+            self._visualizer.save_render(
+                edge_pcd,
+                "08_feature_edges.png",
+                f"Stage 7: {len(feature_edges)} candidate edge segments",
+                self._subsample,
+            )
+            results["feature_edge_cloud"] = edge_pcd
+
+        results["feature_edges"] = feature_edges
+
+        logger.info("=" * 55)
+        logger.info("ADVANCED PIPELINE COMPLETE. We actually cooked here.")
+        logger.info("=" * 55)
+
+        return results
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s - %(message)s")
     AdvancedPipeline().run_advanced()
