@@ -23,10 +23,14 @@ class Visualizer:
     Matplotlib 3D scatter is CPU-bound. If I yeet 1.5M points into it, the
     script can hang for ages and create a chunky PNG. Total L.
 
-    First render pass was technically correct but visually weak: pale background,
-    gridlines stealing attention, and too few points for the object to feel solid.
-    So this renderer treats the output more like a clean product shot: dark
-    background, no axes, denser sampling, and a fixed camera angle.
+    The early render passes proved the pipeline worked, but the visuals were still
+    not honest enough. Matplotlib can quietly warp a 3D object if the X/Y/Z limits
+    are scaled independently, and large transparent points turn dense geometry
+    into blurry sludge.
+
+    Current fix: lock one uniform 3D bounding box, use tiny opaque points, render
+    more samples, and choose a high isometric camera angle that actually shows the
+    eagle's silhouette.
     """
 
     def __init__(self, output_dir: str = "docs/renders") -> None:
@@ -44,16 +48,21 @@ class Visualizer:
         pcd: o3d.geometry.PointCloud,
         filename: str,
         title: str = "",
-        subsample: int = 50000,
+        subsample: int = 75000,
     ) -> str:
         """Save a 3D scatter view of the cloud as a PNG.
 
         Points are randomly dropped if the cloud is larger than `subsample`.
         That is render-only; the actual Open3D point cloud is not mutated.
+
+        Matplotlib's 3D scatter is not a real hardware renderer. If points are big
+        and semi-transparent, far-side geometry bleeds through near-side geometry.
+        Tiny opaque points are less flashy per-point, but the whole cloud reads
+        much more cleanly as a shape.
         """
         pts = np.asarray(pcd.points)
         if len(pts) == 0:
-            logger.warning("Cloud is totally empty ngl. Skipping %s", filename)
+            logger.warning("Cloud is empty. Skipping %s", filename)
             return ""
 
         # Subsample for rendering ONLY. Never mutate the real pipeline data.
@@ -67,8 +76,8 @@ class Visualizer:
             pts_r = pts
             cols_r = np.asarray(pcd.colors) if pcd.has_colors() else None
 
-        fig = plt.figure(figsize=(10, 8), facecolor="#111111")
-        ax = fig.add_subplot(111, projection="3d", facecolor="#111111")
+        fig = plt.figure(figsize=(12, 10), facecolor="#050505")
+        ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
 
         if cols_r is not None:
             ax.scatter(
@@ -76,9 +85,11 @@ class Visualizer:
                 pts_r[:, 1],
                 pts_r[:, 2],
                 c=cols_r,
-                s=1.2,
+                s=0.2,
                 linewidths=0,
-                alpha=0.9,
+                edgecolors="none",
+                alpha=1.0,
+                depthshade=False,
             )
         else:
             ax.scatter(
@@ -86,35 +97,49 @@ class Visualizer:
                 pts_r[:, 1],
                 pts_r[:, 2],
                 c="#00ffcc",
-                s=1.2,
+                s=0.2,
                 linewidths=0,
-                alpha=0.6,
+                edgecolors="none",
+                alpha=1.0,
+                depthshade=False,
             )
 
         full_count = len(pts)
         if title:
             ax.set_title(
                 f"{title}\n{full_count:,} pts total - {len(pts_r):,} shown",
-                fontsize=11,
+                fontsize=12,
                 color="white",
-                pad=8,
+                pad=10,
             )
 
-        # Kill the axes/grid completely. For this assignment render, the geometry is
-        # the subject; the grey grid is just visual noise.
-        ax.axis("off")
-        ax.view_init(elev=25, azim=-45)
+        # Matplotlib auto-scales X/Y/Z independently. That can stretch the eagle
+        # into a blob even when the actual point coordinates are correct. So I take
+        # the largest physical range and use it for all three axes. Same scale in
+        # every direction, no fake warping.
+        mins = pts_r.min(axis=0)
+        maxs = pts_r.max(axis=0)
+        centers = (mins + maxs) * 0.5
+        half_range = float(np.max(maxs - mins) * 0.5)
+        if half_range == 0.0:
+            half_range = 1.0
 
-        # Preserve the actual spatial proportions instead of letting matplotlib
-        # squash the cloud into a weird default 3D box.
-        extents = np.ptp(pts_r, axis=0)
-        extents[extents == 0] = 1.0
-        ax.set_box_aspect(extents, zoom=1.25)
+        ax.set_xlim(centers[0] - half_range, centers[0] + half_range)
+        ax.set_ylim(centers[1] - half_range, centers[1] + half_range)
+        ax.set_zlim(centers[2] - half_range, centers[2] + half_range)
+        ax.set_box_aspect([1, 1, 1], zoom=1.18)
+
+        # Clean inspection render: no grid, no panes, no tick labels. Just geometry.
+        ax.axis("off")
+
+        # I tested a small camera contact sheet on the actual Eagle cloud. This
+        # angle gives the clearest side/profile read of the wings and body.
+        ax.view_init(elev=35, azim=-145)
 
         out_path = os.path.join(self._output_dir, filename)
         plt.savefig(
             out_path,
-            dpi=200,
+            dpi=300,
             bbox_inches="tight",
             facecolor=fig.get_facecolor(),
         )
@@ -124,14 +149,14 @@ class Visualizer:
         # Multiple renders = multiple hidden figures = bad time.
         plt.close(fig)
 
-        logger.info("Saved cinema render -> %s", out_path)
+        logger.info("Saved locked-scale cinema render -> %s", out_path)
         return os.path.abspath(out_path)
 
     def save_normals_render(
         self,
         pcd: o3d.geometry.PointCloud,
         filename: str,
-        subsample: int = 50000,
+        subsample: int = 75000,
     ) -> str:
         """Render normals by mapping vector direction into RGB colour.
 

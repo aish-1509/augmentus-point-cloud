@@ -107,10 +107,10 @@ class Config:
     output_dir: str = "docs/renders"
     # Directory where all PNG renders are written. Created automatically if absent.
 
-    render_subsample: int = 50000
+    render_subsample: int = 75000
     # Matplotlib 3D scatter is still CPU-rendered, so I do not want to throw the
     # full 316k cleaned points into every PNG.
     # But the first 8k render pass looked too thin, like the eagle was turning
-    # into dust. 50k is the better presentation tradeoff: denser, more solid,
-    # still quick enough on my laptop.
+    # into dust. 50k helped, but 75k gives the silhouette enough density while
+    # still staying manageable for a submission render.
     # Actual processing always uses the full cloud; this only affects image output.

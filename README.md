@@ -61,7 +61,7 @@ Base pipeline:
 Advanced pipeline:
 ICP fitness = 1.0000
 ICP RMSE    = 0.000000
-Feature edges above 20 degrees = 32,917
+Feature edges above 20 degrees = 32,922
 
 Tests:
 11 passed
@@ -92,14 +92,24 @@ sparse: white background, grey gridlines, tiny points, and an average camera
 angle. The geometry was working under the hood, but the images did not communicate
 that clearly.
 
-I treated the second pass more like a visual inspection artifact than a math plot:
+The next issue was more subtle: Matplotlib can make correct 3D data look wrong.
+If X, Y, and Z limits are auto-scaled independently, a wide point cloud can look
+stretched or blobby in the final PNG. Also, large semi-transparent scatter points
+turn dense 3D geometry into a muddy cloud because Matplotlib is not a true
+hardware point-cloud renderer.
+
+The final render pass treats the PNGs more like visual inspection artifacts than
+default math plots:
 
 - Removed axes and gridlines so the point cloud is the only subject in the frame.
 - Switched to a dark background so cluster colors and normal-map colors have real
   contrast.
-- Increased render subsampling from `8,000` to `50,000` points so the shape reads
-  as a solid scanned object instead of a dust cloud.
-- Fixed the camera angle for consistent inspection across all stages.
+- Increased render subsampling from `8,000` to `75,000` points so the shape reads
+  more like a scanned object instead of a sparse dust cloud.
+- Used tiny opaque points instead of large transparent points to reduce visual
+  sludge from depth sorting.
+- Locked X/Y/Z to one shared physical range so the rendered object is not warped.
+- Fixed a high isometric camera angle for consistent inspection across all stages.
 - Used deterministic subsampling so rerunning the pipeline does not create random
   visual diffs in Git.
 
