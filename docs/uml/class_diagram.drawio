@@ -1,0 +1,67 @@
+<mxfile host="app.diagrams.net" modified="2026-06-27T00:00:00.000Z" agent="draw.io" version="24.7.17">
+  <diagram id="augmentus-point-cloud-classes" name="Point Cloud Pipeline Classes">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Augmentus Point Cloud Processing - UML Class Diagram" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=22;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="360" y="20" width="680" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="config" value="&lt;b&gt;Config&lt;/b&gt;&lt;br/&gt;- voxel_size: float&lt;br/&gt;- sor_nb_neighbors: int&lt;br/&gt;- sor_std_ratio: float&lt;br/&gt;- normal_radius: float&lt;br/&gt;- normal_max_nn: int&lt;br/&gt;- clustering_eps: float&lt;br/&gt;- clustering_min_points: int&lt;br/&gt;- output_dir: str&lt;br/&gt;- render_subsample: int" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f1ff;strokeColor=#4b77be;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="270" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="loader" value="&lt;b&gt;Loader&lt;/b&gt;&lt;br/&gt;+ load_eagle(): PointCloud&lt;br/&gt;&lt;br/&gt;Owns dataset acquisition only.&lt;br/&gt;Uses o3d.data.EaglePointCloud()." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ed;strokeColor=#5b9b5b;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="400" y="100" width="250" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="preprocessor" value="&lt;b&gt;Preprocessor&lt;/b&gt;&lt;br/&gt;+ downsample(pcd): PointCloud&lt;br/&gt;+ remove_outliers(pcd): PointCloud&lt;br/&gt;+ preprocess(pcd): PointCloud&lt;br/&gt;&lt;br/&gt;Voxel downsample, then SOR." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ed;strokeColor=#5b9b5b;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="720" y="100" width="290" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="normal" value="&lt;b&gt;NormalEstimator&lt;/b&gt;&lt;br/&gt;+ estimate(pcd): PointCloud&lt;br/&gt;&lt;br/&gt;Uses PCA neighbourhoods through&lt;br/&gt;KDTreeSearchParamHybrid." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ed;strokeColor=#5b9b5b;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="1070" y="100" width="270" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster" value="&lt;b&gt;ClusterExtractor&lt;/b&gt;&lt;br/&gt;+ extract(pcd): list[PointCloud]&lt;br/&gt;+ get_colored_cloud(pcd): PointCloud&lt;br/&gt;- _run_dbscan(pcd): ndarray&lt;br/&gt;&lt;br/&gt;DBSCAN-based Euclidean clustering." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4df;strokeColor=#d79b00;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="720" y="340" width="310" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="visualizer" value="&lt;b&gt;Visualizer&lt;/b&gt;&lt;br/&gt;+ save_render(pcd, filename, title, subsample): str&lt;br/&gt;+ save_normals_render(pcd, filename, subsample): str&lt;br/&gt;&lt;br/&gt;Headless Matplotlib PNG output." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4df;strokeColor=#d79b00;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="1070" y="340" width="300" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="pipeline" value="&lt;b&gt;Pipeline&lt;/b&gt;&lt;br/&gt;+ run(): dict[str, Any]&lt;br/&gt;&lt;br/&gt;Composition root. Holds the worker objects&lt;br/&gt;and runs the required stages in order." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9673a6;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="410" y="610" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="advanced" value="&lt;b&gt;AdvancedPipeline&lt;/b&gt;&lt;br/&gt;+ global_registration(source, target): RegistrationResult&lt;br/&gt;+ local_registration(source, target): RegistrationResult&lt;br/&gt;+ poisson_reconstruction(pcd): tuple[TriangleMesh, ndarray]&lt;br/&gt;+ detect_feature_edges(mesh): list&lt;br/&gt;+ run_advanced(): dict[str, object]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9673a6;fontSize=13;align=left;spacing=10" vertex="1" parent="1">
+          <mxGeometry x="790" y="590" width="430" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-config" value="has config" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="config">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-loader" value="has loader" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="loader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-preprocessor" value="has preprocessor" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="preprocessor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-normal" value="has normal estimator" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="normal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-cluster" value="has cluster extractor" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="cluster">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pipeline-visualizer" value="has visualizer" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;fontSize=12" edge="1" parent="1" source="pipeline" target="visualizer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-advanced-pipeline" value="extends" style="endArrow=block;endFill=0;html=1;rounded=0;strokeWidth=2;strokeColor=#6b4f7a;fontSize=12" edge="1" parent="1" source="advanced" target="pipeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-preprocessor-config" value="reads" style="endArrow=open;html=1;rounded=0;dashed=1;strokeColor=#999999;fontSize=12" edge="1" parent="1" source="preprocessor" target="config">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-normal-config" value="reads" style="endArrow=open;html=1;rounded=0;dashed=1;strokeColor=#999999;fontSize=12" edge="1" parent="1" source="normal" target="config">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-cluster-config" value="reads" style="endArrow=open;html=1;rounded=0;dashed=1;strokeColor=#999999;fontSize=12" edge="1" parent="1" source="cluster" target="config">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
