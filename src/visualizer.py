@@ -28,9 +28,9 @@ class Visualizer:
     are scaled independently, and large transparent points turn dense geometry
     into blurry sludge.
 
-    Current fix: lock one uniform 3D bounding box, use tiny opaque points, render
-    more samples, and choose a high isometric camera angle that actually shows the
-    eagle's silhouette.
+    Current fix: lock one uniform 3D bounding box, render the cleaned Eagle cloud
+    without dropping points, use tiny opaque points, and choose a low 3/4 camera
+    angle so the bird reads upright instead of looking flattened from above.
     """
 
     def __init__(self, output_dir: str = "docs/renders") -> None:
@@ -48,17 +48,17 @@ class Visualizer:
         pcd: o3d.geometry.PointCloud,
         filename: str,
         title: str = "",
-        subsample: int = 75000,
+        subsample: int = 400000,
     ) -> str:
         """Save a 3D scatter view of the cloud as a PNG.
 
         Points are randomly dropped if the cloud is larger than `subsample`.
         That is render-only; the actual Open3D point cloud is not mutated.
 
-        Matplotlib's 3D scatter is not a real hardware renderer. If points are big
-        and semi-transparent, far-side geometry bleeds through near-side geometry.
-        Tiny opaque points are less flashy per-point, but the whole cloud reads
-        much more cleanly as a shape.
+        Matplotlib's 3D scatter is not a real hardware renderer. If points are
+        large and semi-transparent, far-side geometry bleeds through near-side
+        geometry. Here I keep the points microscopic and opaque, then render all
+        316k cleaned Eagle points so the silhouette comes from real data density.
         """
         pts = np.asarray(pcd.points)
         if len(pts) == 0:
@@ -78,6 +78,7 @@ class Visualizer:
 
         fig = plt.figure(figsize=(12, 10), facecolor="#050505")
         ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
+        ax.set_proj_type("ortho")
 
         if cols_r is not None:
             ax.scatter(
@@ -85,7 +86,7 @@ class Visualizer:
                 pts_r[:, 1],
                 pts_r[:, 2],
                 c=cols_r,
-                s=0.2,
+                s=0.05,
                 linewidths=0,
                 edgecolors="none",
                 alpha=1.0,
@@ -97,7 +98,7 @@ class Visualizer:
                 pts_r[:, 1],
                 pts_r[:, 2],
                 c="#00ffcc",
-                s=0.2,
+                s=0.05,
                 linewidths=0,
                 edgecolors="none",
                 alpha=1.0,
@@ -127,14 +128,14 @@ class Visualizer:
         ax.set_xlim(centers[0] - half_range, centers[0] + half_range)
         ax.set_ylim(centers[1] - half_range, centers[1] + half_range)
         ax.set_zlim(centers[2] - half_range, centers[2] + half_range)
-        ax.set_box_aspect([1, 1, 1], zoom=1.18)
+        ax.set_box_aspect([1, 1, 1], zoom=1.05)
 
         # Clean inspection render: no grid, no panes, no tick labels. Just geometry.
         ax.axis("off")
 
-        # I tested a small camera contact sheet on the actual Eagle cloud. This
-        # angle gives the clearest side/profile read of the wings and body.
-        ax.view_init(elev=35, azim=-145)
+        # Low 3/4 view: keeps the eagle more upright and avoids the top-down
+        # shoulder view that made the earlier render feel twisted.
+        ax.view_init(elev=15, azim=135)
 
         out_path = os.path.join(self._output_dir, filename)
         plt.savefig(
@@ -149,14 +150,14 @@ class Visualizer:
         # Multiple renders = multiple hidden figures = bad time.
         plt.close(fig)
 
-        logger.info("Saved locked-scale cinema render -> %s", out_path)
+        logger.info("Saved upright full-density render -> %s", out_path)
         return os.path.abspath(out_path)
 
     def save_normals_render(
         self,
         pcd: o3d.geometry.PointCloud,
         filename: str,
-        subsample: int = 75000,
+        subsample: int = 400000,
     ) -> str:
         """Render normals by mapping vector direction into RGB colour.
 

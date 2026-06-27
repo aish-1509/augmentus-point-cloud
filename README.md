@@ -61,7 +61,7 @@ Base pipeline:
 Advanced pipeline:
 ICP fitness = 1.0000
 ICP RMSE    = 0.000000
-Feature edges above 20 degrees = 32,922
+Feature edges above 20 degrees = 32,919
 
 Tests:
 11 passed
@@ -104,12 +104,14 @@ default math plots:
 - Removed axes and gridlines so the point cloud is the only subject in the frame.
 - Switched to a dark background so cluster colors and normal-map colors have real
   contrast.
-- Increased render subsampling from `8,000` to `75,000` points so the shape reads
-  more like a scanned object instead of a sparse dust cloud.
+- Increased render subsampling from `8,000` to `400,000` points. The cleaned
+  Eagle cloud has `316,519` points, so the processed renders now show every
+  cleaned point instead of dropping most of the scan.
 - Used tiny opaque points instead of large transparent points to reduce visual
   sludge from depth sorting.
 - Locked X/Y/Z to one shared physical range so the rendered object is not warped.
-- Fixed a high isometric camera angle for consistent inspection across all stages.
+- Switched to an orthographic, low 3/4 camera angle so the Eagle reads more
+  upright instead of looking flattened from above.
 - Used deterministic subsampling so rerunning the pipeline does not create random
   visual diffs in Git.
 

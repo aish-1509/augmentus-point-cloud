@@ -107,10 +107,11 @@ class Config:
     output_dir: str = "docs/renders"
     # Directory where all PNG renders are written. Created automatically if absent.
 
-    render_subsample: int = 75000
+    render_subsample: int = 400000
     # Matplotlib 3D scatter is still CPU-rendered, so I do not want to throw the
-    # full 316k cleaned points into every PNG.
+    # full raw 796k points into every PNG.
     # But the first 8k render pass looked too thin, like the eagle was turning
-    # into dust. 50k helped, but 75k gives the silhouette enough density while
-    # still staying manageable for a submission render.
+    # into dust. 50k/75k helped, but the cleaned Eagle cloud is 316k points, so
+    # 400k lets the processed renders show every point while still capping the
+    # larger raw cloud.
     # Actual processing always uses the full cloud; this only affects image output.
