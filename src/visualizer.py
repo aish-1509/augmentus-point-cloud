@@ -93,21 +93,25 @@ class Visualizer:
         pts_r = pts_r @ rx.T
         # ───────────────────────────────────────────────────────────────────────
 
-        # Dark background for better contrast
-        fig = plt.figure(figsize=(12, 10), facecolor="#050505")
+        # Dark background for better contrast. Bigger canvas = more pixels per point
+        # at 300dpi, which means finer detail in the saved PNGs.
+        fig = plt.figure(figsize=(16, 14), facecolor="#050505")
         ax = fig.add_subplot(111, projection="3d", facecolor="#050505")
         ax.set_proj_type("ortho")
 
-        # Scale point size inversely with density. Dense clouds (100K+) need microscopic
-        # points so the silhouette emerges from density alone. Sparse clusters (< 1K)
-        # need larger points or they become invisible at 300dpi on a dark background.
+        # Adaptive point size based on density:
+        # - Big clouds (100K+): each scatter dot needs to be tiny or they smear
+        #   together and turn into a muddy blob. But 0.08 (up from 0.05) makes the
+        #   interior feather/surface texture visible, not just the silhouette edges.
+        # - Small clusters (< 1K): at 300dpi on a dark canvas these are literally
+        #   invisible at s=0.05, so we scale up hard.
         n = len(pts_r)
         if n >= 100_000:
-            pt_size = 0.05
+            pt_size = 0.08
         elif n >= 10_000:
-            pt_size = 0.3
+            pt_size = 0.4
         elif n >= 1_000:
-            pt_size = 1.5
+            pt_size = 2.0
         else:
             pt_size = 10.0
 

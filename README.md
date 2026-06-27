@@ -1,5 +1,7 @@
 # Augmentus Point Cloud Processing
 
+[![Tests](https://github.com/aish-1509/augmentus-point-cloud/actions/workflows/ci.yml/badge.svg)](https://github.com/aish-1509/augmentus-point-cloud/actions/workflows/ci.yml)
+
 Runnable Open3D pipeline for the Augmentus perception assignment.
 
 The pipeline uses Open3D's built-in `o3d.data.EaglePointCloud()` dataset, so no
@@ -52,16 +54,17 @@ The advanced pipeline then adds:
 
 ## Latest Verified Run
 
-Verified locally on 27 June 2026:
+Verified locally on 28 June 2026:
 
 ```text
 Base pipeline:
 796,825 raw points -> 316,519 clean points -> 13 clusters extracted
 
 Advanced pipeline:
-ICP fitness = 1.0000
-ICP RMSE    = 0.000000
-Feature edges above 20 degrees = 32,920
+ICP fitness       = 1.0000
+ICP RMSE          = 0.000000
+Poisson triangles = 1,022,704  (depth=9)
+Feature edges     = 95,768 segments above 20 degrees
 
 Tests:
 11 passed

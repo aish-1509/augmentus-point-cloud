@@ -30,7 +30,11 @@ class AdvancedPipeline(Pipeline):
 
     def __init__(self, config: Config | None = None) -> None:
         super().__init__(config)
-        self._poisson_depth = 8
+        # depth=9 gives roughly 4x more triangles than depth=8. The mesh actually
+        # starts to show feather groove detail at this level, which is exactly what
+        # you want if you're planning a spray-paint path — the nozzle needs to know
+        # every surface fold so coverage stays even.
+        self._poisson_depth = 9
         self._edge_threshold_deg = 20.0
 
     # -- REGISTRATION ---------------------------------------------------------
@@ -222,6 +226,10 @@ class AdvancedPipeline(Pipeline):
             angle_deg = float(np.degrees(np.arccos(dot)))
 
             if angle_deg > self._edge_threshold_deg:
+                # These are the places where a spray nozzle needs to slow down
+                # or adjust its standoff distance — wing-body joints, feather
+                # ridges, the plinth corners. Flat surface sections in between
+                # can be covered at a constant speed.
                 feature_edges.append((verts[edge[0]], verts[edge[1]], angle_deg))
 
         logger.info(
@@ -291,11 +299,15 @@ class AdvancedPipeline(Pipeline):
         logger.info("=" * 55)
         logger.info("STAGE 6 - Poisson surface reconstruction")
         mesh, densities = self.poisson_reconstruction(with_normals)
-        mesh_sample = mesh.sample_points_uniformly(number_of_points=8000)
+        tri_count = len(np.asarray(mesh.triangles))
+        logger.info("Poisson mesh: %s triangles", f"{tri_count:,}")
+        # Sample densely so the render actually shows surface detail, not just a
+        # rough silhouette. 300K points ≈ enough to show feather groove texture.
+        mesh_sample = mesh.sample_points_uniformly(number_of_points=300_000)
         self._visualizer.save_render(
             mesh_sample,
             "07_poisson_mesh.png",
-            "Stage 6: Watertight Poisson mesh sample",
+            f"Stage 6: Watertight Poisson mesh — {tri_count:,} triangles",
             self._subsample,
         )
         results["mesh"] = mesh

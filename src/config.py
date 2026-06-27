@@ -107,11 +107,11 @@ class Config:
     output_dir: str = "docs/renders"
     # Directory where all PNG renders are written. Created automatically if absent.
 
-    render_subsample: int = 400000
-    # Matplotlib 3D scatter is still CPU-rendered, so I do not want to throw the
-    # full raw 796k points into every PNG.
-    # But the first 8k render pass looked too thin, like the eagle was turning
-    # into dust. 50k/75k helped, but the cleaned Eagle cloud is 316k points, so
-    # 400k lets the processed renders show every point while still capping the
-    # larger raw cloud.
+    render_subsample: int = 700000
+    # How many points to actually hand to matplotlib's scatter for each PNG.
+    # The full raw scan is 796k, the cleaned cloud is 316k. Setting this to 700k
+    # means the cleaned stages show literally every point and the raw stage still
+    # shows ~88% of points — dense enough that the feather texture starts to show.
+    # Anything past ~800k starts to noticeably slow down the render without adding
+    # meaningful visual detail at the final DPI.
     # Actual processing always uses the full cloud; this only affects image output.
