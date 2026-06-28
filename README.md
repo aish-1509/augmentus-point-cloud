@@ -133,7 +133,7 @@ Each cluster is saved separately with its assigned vibrant color. Small clusters
 
 A `cluster_summary.json` is also written to `docs/renders/` with point count, bounding box, and centroid data for each cluster.
 
-**Note on cluster count:** The Euclidean pass finds five valid components above the `min_cluster_size=50` threshold. A sixth connected component exists in the data with 37 points, but falls below the cutoff. Lowering the threshold to 30 would include it, but at 37 points (roughly 2 cm × 2 cm surface patch at 2 cm voxel spacing) it is more likely a scanner edge artifact than meaningful geometry. Keeping the threshold at 50 avoids presenting noise as a cluster.
+**Note on cluster count:** The Euclidean pass finds five valid components above the `min_cluster_size=50` threshold. A sixth connected component exists in the data with 37 points, but falls below the cutoff. Lowering the threshold to 30 would include it, but at 37 points (roughly 2 cm × 2 cm surface patch at 2 cm voxel spacing) it is more likely a scanner edge artifact than meaningful geometry. Keeping the threshold at 50 avoids presenting noise as a cluster. The five separated fragments are structurally meaningful — each sits above the 50-point density threshold and corresponds to a distinct surface region, visible in the individual cluster renders and the cluster_summary.json.
 
 ### Advanced Pipeline Renders (optional)
 
