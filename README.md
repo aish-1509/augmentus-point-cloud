@@ -403,6 +403,78 @@ pytest -v          # verbose, shows individual test names
 
 Tests use synthetic in-memory point clouds — no Eagle download needed, no network calls, deterministic across runs.
 
+### Why the Unit Tests Use Synthetic Point Clouds
+
+The Eagle scan is the real assignment dataset, but it is not ideal for unit
+tests. Unit tests should be small, deterministic, and focused on one behaviour
+at a time. If every test downloaded or processed the full Eagle cloud, the suite
+would be slower, network-dependent, and harder to debug.
+
+So the tests generate tiny in-memory point clouds with NumPy:
+
+- random cubes for downsampling and cropping
+- Gaussian blobs for clustering
+- a near-flat plane for normal estimation
+- dense inlier cores plus faraway points for outlier removal
+
+That lets each test ask one clean question: "Did this method keep its promise?"
+The full Eagle dataset is still verified separately by running `python -m src.pipeline`.
+
+### Every Test, In Plain English
+
+| Test | File | Synthetic data used | What it proves | If it failed, it would mean... |
+|---|---|---|---|---|
+| `test_reduces_point_count` | `test_preprocessing.py` | 10,000 random points in a cube | Voxel downsampling actually reduces point count, which is a direct assignment requirement. | `voxel_down_sample()` is not being called correctly, or the voxel size is too small to merge points. |
+| `test_output_is_not_empty` | `test_preprocessing.py` | 5,000 random cube points | Downsampling reduces density without deleting the entire cloud. | The voxel settings or preprocessing call destroyed all geometry. |
+| `test_larger_voxel_gives_fewer_points` | `test_preprocessing.py` | Same cloud downsampled with `0.05m` and `0.20m` voxels | Larger voxels merge more space into fewer occupied cells. | The downsampling behaviour is backwards or the comparison setup is wrong. |
+| `test_points_stay_within_original_bounds` | `test_preprocessing.py` | 10,000 random cube points | Downsampled centroids stay inside the original bounding box. | Voxel centroids are being generated outside the source geometry, which would corrupt spatial structure. |
+| `test_removes_some_points_from_noisy_cloud` | `test_preprocessing.py` | Dense Gaussian core plus faraway outliers | Statistical Outlier Removal removes obvious floating noise. | SOR is not filtering distant ghost points. |
+| `test_preserves_most_inlier_points` | `test_preprocessing.py` | 1,000 inliers plus 50 outliers | SOR is not too aggressive; it keeps at least 900 valid inlier points. | The filter settings are shaving away real surface data, not just noise. |
+| `test_crop_never_increases_point_count` | `test_preprocessing.py` | 5,000 random cube points | Cropping can only remove points, never create new ones. | The crop method is returning invalid output or mixing data incorrectly. |
+| `test_crop_removes_boundary_points_with_large_padding` | `test_preprocessing.py` | 10,000 random cube points with large padding | A large crop padding visibly shrinks the cloud. | `crop_padding` is not actually affecting the ROI. |
+| `test_cropped_points_stay_inside_padded_aabb` | `test_preprocessing.py` | Random cube points with known padded bounds | Every surviving point is inside the expected Axis-Aligned Bounding Box. | The crop bounds math has a boundary or sign error. |
+| `test_zero_padding_preserves_all_points` | `test_preprocessing.py` | 3,000 random cube points | `crop_padding=0.0` behaves as a no-op. | The crop stage removes points even when explicitly told not to. |
+| `test_normal_estimation_adds_one_finite_normal_per_point` | `test_normal_estimator.py` | A near-flat synthetic plane | Normal estimation attaches exactly one finite normal vector per point. | Open3D normal estimation failed, produced invalid values, or returned the wrong normal count. |
+| `test_normal_estimation_rejects_empty_cloud` | `test_normal_estimator.py` | Empty `PointCloud` | Empty inputs fail clearly instead of silently continuing. | The pipeline could produce meaningless outputs from an empty cloud. |
+| `test_produces_more_than_one_cluster` | `test_cluster_extractor.py` | Two separated Gaussian blobs | Clustering produces more than one segment, which is the exact assignment test requirement. | The clustering tolerance is too large, or cluster extraction is not separating disconnected components. |
+| `test_finds_exactly_two_blobs` | `test_cluster_extractor.py` | Two clean blobs far apart | The Euclidean cluster extractor returns exactly the two expected components. | The algorithm is either merging separate blobs or splitting one blob into fragments. |
+| `test_clusters_sorted_largest_first` | `test_cluster_extractor.py` | One large blob and one smaller blob | Clusters are sorted so the main object appears first. | Downstream code might inspect a tiny fragment before the main object. |
+| `test_colored_cloud_preserves_point_count` | `test_cluster_extractor.py` | Two separated blobs | Coloring clusters only adds RGB values; it does not add/remove geometry. | The visualization step is mutating the point cloud incorrectly. |
+| `test_colored_cloud_has_valid_rgb` | `test_cluster_extractor.py` | Two separated blobs | Every point has an RGB color in Open3D's valid `[0, 1]` range. | Renders may appear blank, clipped, or invalid because color values are wrong. |
+| `test_labels_mark_unkept_noise_as_minus_one` | `test_cluster_extractor.py` | One valid blob plus one tiny isolated speck | Tiny components below `clustering_min_points` become noise label `-1`. | Scanner speckles could be reported as real clusters. |
+| `test_cluster_summary_contains_geometry_stats` | `test_cluster_extractor.py` | Two separated blobs | Cluster summaries include point count, bounding box min/max, extent, and centroid. | The JSON summary would not be useful for debugging or reviewer inspection. |
+
+### What GitHub Actions / CI Tests
+
+GitHub Actions runs the workflow in `.github/workflows/ci.yml` on every push to
+`main` and on pull requests targeting `main`.
+
+| CI step | What it does | Why it matters |
+|---|---|---|
+| `actions/checkout@v7` | Pulls the repository into a fresh GitHub-hosted Ubuntu machine. | Proves the repo can be tested outside my laptop. |
+| `actions/setup-python@v6` | Installs Python 3.11. | Matches the local development runtime closely. |
+| Install system dependencies | Installs packages such as `libgl1`, `libegl1`, `libgomp1`, `libglib2.0-0`, `libsm6`, `libxext6`, `libxrender1`. | Open3D needs these native libraries on Linux, even when tests are headless. |
+| `pip install -r requirements.txt` | Installs Open3D, NumPy, Matplotlib, and Pytest. | Proves the dependency file is enough to set up the project. |
+| `MPLBACKEND=Agg python -m pytest tests/ -v` | Runs all 19 unit tests without opening a GUI window. | Proves preprocessing, normal estimation, clustering, coloring, and summaries still work after each push. |
+
+The CI intentionally does **not** run the full Eagle pipeline. That would make
+every push download/process/render a large point cloud and would slow CI down
+unnecessarily. The full real-data verification is done locally with:
+
+```bash
+python -m src.pipeline
+python -m src.advanced_pipeline
+```
+
+So the testing strategy is split cleanly:
+
+| Layer | Command | Purpose |
+|---|---|---|
+| Unit tests | `pytest -v` | Fast synthetic checks for specific behaviours. |
+| Core real-data pipeline | `python -m src.pipeline` | Verifies the required assignment pipeline on the actual Eagle dataset. |
+| Advanced real-data pipeline | `python -m src.advanced_pipeline` | Verifies optional registration, Poisson reconstruction, and feature-edge stages. |
+| GitHub CI | GitHub Actions `Tests` workflow | Confirms the unit test suite passes in a clean Linux environment after every push. |
+
 ---
 
 ## Repository Structure
