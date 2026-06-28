@@ -51,6 +51,8 @@ class Visualizer:
         filename: str,
         title: str = "",
         subsample: int = 400000,
+        elev: float = 15.0,
+        azim: float = 30.0,
     ) -> str:
         """
         Saves a 3D scatter view of the cloud as a high-res PNG.
@@ -157,11 +159,15 @@ class Visualizer:
         # Clean inspection render: no grid, no panes, no numbers. Just geometry.
         ax.axis("off")
 
-        # Low 3/4 front view after the render-only rotation. This keeps the
-        # plinth grounded while still showing the wing/body geometry.
-        ax.view_init(elev=15, azim=30)
+        # Camera angle is caller-controlled so save_multi_angle_render can
+        # request the same cloud from iso, front, side, and top in one pass.
+        ax.view_init(elev=elev, azim=azim)
 
         out_path = os.path.join(self._output_dir, filename)
+        out_dir = os.path.dirname(out_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
         plt.savefig(
             out_path,
             dpi=300, # High resolution output
@@ -211,3 +217,56 @@ class Visualizer:
             title="Surface normals - R=|Nx|  G=|Ny|  B=|Nz|",
             subsample=subsample,
         )
+
+    def save_multi_angle_render(
+        self,
+        pcd: o3d.geometry.PointCloud,
+        base_filename: str,
+        title: str = "",
+        subsample: int = 400000,
+    ) -> list[str]:
+        """Save the same cloud from four viewpoints: isometric, front, side, top.
+
+        A single isometric angle can hide clusters stacked along the camera's
+        depth axis — two separate components can look merged if they happen to
+        project to the same screen region. Four angles together make it impossible
+        to miss spatial separation.
+
+        Naming convention:
+            base_filename="05_clusters.png" produces:
+                05_clusters_iso.png   — low 3/4 isometric (standard inspection)
+                05_clusters_front.png — straight-on from front (Y-Z plane)
+                05_clusters_side.png  — straight-on from side (X-Z plane)
+                05_clusters_top.png   — near-top-down (X-Y footprint layout)
+
+        elev=85 for top view instead of 90: matplotlib's 3D scatter at exactly
+        elev=90 can produce a blank frame due to degenerate projection. 85 gives
+        a near-vertical camera without that edge case.
+        """
+        if "." in base_filename:
+            stem, ext = base_filename.rsplit(".", 1)
+        else:
+            stem, ext = base_filename, "png"
+
+        # (suffix, elev, azim, human-readable label)
+        views = [
+            ("iso",    15.0,  30.0, "isometric 3/4"),
+            ("front",   5.0,   0.0, "front"),
+            ("side",    5.0,  90.0, "side"),
+            ("top",    85.0,   0.0, "top-down"),
+        ]
+
+        paths: list[str] = []
+        for suffix, e, a, label in views:
+            path = self.save_render(
+                pcd,
+                f"{stem}_{suffix}.{ext}",
+                f"{title} [{label}]",
+                subsample,
+                elev=e,
+                azim=a,
+            )
+            paths.append(path)
+
+        logger.info("Multi-angle render complete: %d views saved.", len(paths))
+        return paths

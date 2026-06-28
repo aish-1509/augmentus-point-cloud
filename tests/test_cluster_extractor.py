@@ -1,6 +1,6 @@
 """Unit tests for ClusterExtractor.
 
-Strictly uses synthetic two-blob manifold data: fast, deterministic, zero network
+Strictly uses synthetic two-blob geometry: fast, deterministic, zero network
 overhead.
 """
 
@@ -12,12 +12,12 @@ from src.config import Config
 
 # ── Synthetic Test Data ───────────────────────────────────────────────────────
 # The prompt explicitly requires testing that we get >1 segment.
-# You can't test DBSCAN with uniform random noise; it'll just label everything as
-# one giant cluster or 100% noise.
+# You can't test clustering with uniform random noise; it'll just become one
+# connected component or many tiny fragments depending on the tolerance.
 #
 # The reliable move is to engineer two tight Gaussian blobs in 3D space, separated
 # by a distance much larger than `eps` (2.0m >> 0.05m). This makes DBSCAN's
-# density-reachability fail across the gap, so it must split the islands.
+# reachability, and Euclidean radius reachability, fail across the gap.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -51,16 +51,18 @@ def _make_uneven_blobs(seed: int = 7) -> o3d.geometry.PointCloud:
 class TestClusterExtractor:
     """
     These tests use hard, deterministic geometry: two separated point islands.
-    If DBSCAN merges them, eps is too big. If it makes extra clusters, min_points
-    or spread is off. Either way, the test catches the topology bug fast.
+    If Euclidean clustering merges them, tolerance is too big. If it makes extra
+    clusters, min size or spread is off. Either way, the test catches the
+    topology bug fast.
     """
 
     def test_produces_more_than_one_cluster(self) -> None:
         """Primary requirement: clustering must produce more than one segment."""
         pcd = _make_two_blobs()
-        clusters = ClusterExtractor(
+        extractor = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
-        ).extract(pcd)
+        )
+        clusters = extractor.extract(pcd)
 
         assert len(clusters) > 1, (
             f"Expected more than one cluster, got {len(clusters)}. "
@@ -75,9 +77,10 @@ class TestClusterExtractor:
         eps is too big and bridged the gap.
         """
         pcd = _make_two_blobs(spread=0.01, separation=3.0)
-        clusters = ClusterExtractor(
+        extractor = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
-        ).extract(pcd)
+        )
+        clusters = extractor.extract(pcd)
 
         assert len(clusters) == 2, (
             f"Expected exactly two clusters, got {len(clusters)}."
@@ -91,9 +94,10 @@ class TestClusterExtractor:
         tiny dust cluster before the actual object.
         """
         pcd = _make_uneven_blobs()
-        clusters = ClusterExtractor(
+        extractor = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
-        ).extract(pcd)
+        )
+        clusters = extractor.extract(pcd)
 
         sizes = [len(cluster.points) for cluster in clusters]
         assert sizes == sorted(sizes, reverse=True), (
@@ -103,9 +107,10 @@ class TestClusterExtractor:
     def test_colored_cloud_preserves_point_count(self) -> None:
         """Painting the cloud should not change the number of points."""
         pcd = _make_two_blobs()
-        colored = ClusterExtractor(
+        extractor = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
-        ).get_colored_cloud(pcd)
+        )
+        colored = extractor.get_colored_cloud(pcd)
 
         assert len(colored.points) == len(pcd.points), (
             "Colored cloud should preserve point count."
@@ -118,9 +123,10 @@ class TestClusterExtractor:
         If Open3D gets invalid RGB floats, renders can look blank or clipped.
         """
         pcd = _make_two_blobs()
-        colored = ClusterExtractor(
+        extractor = ClusterExtractor(
             Config(clustering_eps=0.05, clustering_min_points=10)
-        ).get_colored_cloud(pcd)
+        )
+        colored = extractor.get_colored_cloud(pcd)
 
         assert colored.has_colors(), "Renderer returned a blank cloud."
 
@@ -129,3 +135,32 @@ class TestClusterExtractor:
         assert np.all(cols >= 0.0) and np.all(cols <= 1.0), (
             "RGB values out of bounds. Must be [0, 1]."
         )
+
+    def test_labels_mark_unkept_noise_as_minus_one(self) -> None:
+        """Tiny components below min size should become noise label -1."""
+        rng = np.random.default_rng(99)
+        blob = rng.normal([0.0, 0.0, 0.0], 0.01, (80, 3))
+        speck = np.array([[2.0, 2.0, 2.0]])
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.vstack([blob, speck]))
+
+        extractor = ClusterExtractor(Config(clustering_eps=0.05, clustering_min_points=10))
+        cluster_indices = extractor.extract_euclidean_clusters(pcd)
+        labels = extractor.labels_from_clusters(len(pcd.points), cluster_indices)
+
+        assert len(cluster_indices) == 1
+        assert labels[-1] == -1
+
+    def test_cluster_summary_contains_geometry_stats(self) -> None:
+        """Cluster summaries should expose counts, bbox, and centroid data."""
+        pcd = _make_two_blobs()
+        extractor = ClusterExtractor(Config(clustering_eps=0.05, clustering_min_points=10))
+        clusters = extractor.extract(pcd)
+        summary = extractor.build_cluster_summary(clusters, len(pcd.points))
+
+        assert len(summary) == 2
+        assert summary[0]["point_count"] >= summary[1]["point_count"]
+        assert "bbox_min" in summary[0]
+        assert "bbox_max" in summary[0]
+        assert "bbox_extent" in summary[0]
+        assert "centroid" in summary[0]

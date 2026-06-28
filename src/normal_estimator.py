@@ -21,6 +21,7 @@ geometry steps need.
 
 import logging
 
+import numpy as np
 import open3d as o3d
 
 from src.config import Config
@@ -74,6 +75,14 @@ class NormalEstimator:
         # PCA normals are direction-ambiguous at first. This step flips them so
         # neighbouring surface patches mostly agree instead of looking random.
         pcd.orient_normals_consistent_tangent_plane(100)
+
+        normals = np.asarray(pcd.normals)
+        if not pcd.has_normals() or len(normals) != len(pcd.points):
+            raise RuntimeError(
+                "Normal estimation failed: expected one normal per point."
+            )
+        if not np.all(np.isfinite(normals)):
+            raise RuntimeError("Normal estimation produced non-finite values.")
 
         logger.info(
             "Normals estimated (radius=%.2fm, max_nn=%d) for %s pts",

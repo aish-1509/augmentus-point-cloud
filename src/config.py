@@ -60,6 +60,16 @@ class Config:
     # Scanner ghost points are usually much farther from the surface than real
     # points, so 2.0 should remove the obvious junk without shaving off the eagle.
 
+    crop_padding: float = 0.05
+    # Inward margin (metres) trimmed from every face of the filtered scan's
+    # axis-aligned bounding box (AABB) before normal estimation.
+    # The assignment specifically asks for normals on a cropped point cloud, so
+    # this crop is an explicit ROI step, not an accidental side effect.
+    # 0.00: no-op — all raw points survive.
+    # 0.05: 5cm inward per face — removes extreme boundary fringe without
+    #       touching the sculpture surface.
+    # 0.30: too aggressive for a ~1m object, would start clipping real geometry.
+
     # ── Normal estimation ─────────────────────────────────────────────────────
     normal_radius: float = 0.1
     # Search radius for PCA neighbourhood in metres.
@@ -79,9 +89,9 @@ class Config:
     # costs more time than it is worth.
     # The cap also keeps dense scan regions from dominating runtime.
 
-    # ── Clustering (DBSCAN) ───────────────────────────────────────────────────
+    # ── Clustering (Euclidean radius search) ─────────────────────────────────
     clustering_eps: float = 0.10
-    # Maximum distance between two points to be considered neighbours in DBSCAN.
+    # Maximum Euclidean distance between two points for them to be neighbours.
     # Must be larger than voxel_size (so adjacent voxel centres can reach each other)
     # and smaller than the gap between separate objects.
     # After actually measuring the cleaned Eagle cloud, the median nearest-neighbour
@@ -95,13 +105,18 @@ class Config:
     # Tune this first if clustering looks wrong.
 
     clustering_min_points: int = 50
-    # Minimum neighbours within eps for a point to be a DBSCAN core point.
-    # Without enough neighbours, DBSCAN labels the point as noise (-1).
+    # Minimum number of points required for a grown Euclidean component to count
+    # as a real cluster. Smaller connected components are treated as noise.
     # 5: tiny noise fragments can survive as fake clusters.
     # 50: requires a real local patch before calling something a cluster.
     # 500: can throw away smaller but real parts of the eagle.
     # After downsampling, 50 points is roughly a credit-card-sized surface patch,
     # which is a reasonable minimum for avoiding individual stray points.
+
+    clustering_max_points: int | None = None
+    # Optional upper bound for cluster size. None means no upper limit.
+    # The Eagle sculpture is mostly one connected object, so setting a maximum by
+    # default would be risky: it could reject the actual main body.
 
     # ── Output ────────────────────────────────────────────────────────────────
     output_dir: str = "docs/renders"
@@ -115,3 +130,9 @@ class Config:
     # Anything past ~800k starts to noticeably slow down the render without adding
     # meaningful visual detail at the final DPI.
     # Actual processing always uses the full cloud; this only affects image output.
+
+    max_clusters_to_save: int = 13
+    # How many individual cluster PNGs to render (largest clusters first).
+    # The Eagle dataset typically produces 13 clusters.
+    # Setting this to 13 saves every one of them as its own PNG.
+    # Reduce to 5 for faster runs; set higher if more clusters appear.
