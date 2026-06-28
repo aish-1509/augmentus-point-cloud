@@ -197,51 +197,171 @@ Every component receives a `Config` dataclass at construction. Change `voxel_siz
 
 ## Development Notes: What I Had to Figure Out
 
-### The crop wording looked small but actually mattered
+This was not just "call a few Open3D functions in order." The core work was
+understanding what each stage was supposed to prove, then making that proof
+visible in the code, tests, UML, and renders.
 
-The assignment says: *"Estimate surface normals for the cropped point cloud."*
+### 1. The assignment wording had to drive the pipeline order
 
-It would have been easy to just downsample, run SOR, and call that preprocessing. A lot of pipelines do exactly that. But the PDF used the word "cropped" specifically, and I didn't want the implementation to be ambiguous about it.
+The line that mattered most was: *"Estimate surface normals for the cropped
+point cloud."*
 
-So `crop_to_roi()` is its own named method in `Preprocessor`. The pipeline calls it explicitly, saves a separate render for it (`03_cropped.png`), and Stage 4 (normals) only ever receives the cropped cloud as input. The comment in `pipeline.py` says exactly why: the assignment requested this ordering, so the code makes it visible rather than hiding it inside a generic `preprocess()` call.
+At first glance, it is easy to read "preprocessing" as just downsample + remove
+outliers. But if normals are estimated immediately after that, the cropped-cloud
+requirement is only loosely satisfied at best. So I made crop a real stage:
 
-### "Euclidean clustering" vs just using DBSCAN
+```text
+raw -> downsample -> SOR filter -> crop ROI -> normals -> Euclidean clusters
+```
 
-Open3D ships `cluster_dbscan()` out of the box, and it would have been easy to use it and call it Euclidean clustering because the eps parameter is a Euclidean distance. But the assignment wording is "Euclidean clustering," which in robotics typically means the PCL-style algorithm:
+`crop_to_roi()` is its own public method, `03_cropped.png` is saved as its own
+render, and `NormalEstimator.estimate()` only receives the cropped cloud. That
+way the requirement is not hidden inside a vague helper.
+
+### 2. Downsample before SOR, otherwise the search cost is wasted
+
+Statistical Outlier Removal needs nearest-neighbour distances. Running that on
+the full raw Eagle scan would do expensive neighbour searches on ~800k points.
+Voxel downsampling first cuts the cloud to ~330k points, then SOR runs on that
+smaller cloud. The shape is still preserved, but the expensive step has less
+work to do.
+
+That ordering is why `Preprocessor` exposes the steps separately and why the
+pipeline logs each point count:
+
+```text
+796,825 raw -> 329,988 downsampled -> 316,519 cleaned -> 314,626 cropped
+```
+
+### 3. The numbers in `Config` needed actual reasoning, not magic defaults
+
+I did not want `config.py` to look like a random pile of constants. Every number
+has a tradeoff:
+
+- `voxel_size=0.02` keeps 2cm detail, which is reasonable for a sculpture-scale
+  scan where feather/beak details are a few centimetres wide.
+- `sor_nb_neighbors=30` gives a stable mean-distance estimate after downsampling.
+- `normal_radius=0.1` is 5x the voxel size, large enough for PCA to fit a local
+  plane but not so large that it blends different surfaces.
+- `clustering_eps=0.10` was chosen after the initial 5cm idea was too strict for
+  the real cleaned Eagle cloud with `min_points=50`.
+
+The important part is not pretending those values are universal. They are sane
+starting points for this dataset, and the comments explain how to tune them.
+
+### 4. Normal estimation made me slow down and think about local geometry
+
+A point cloud is just coordinates until normals are attached. For each point,
+Open3D looks at nearby points, fits a local plane using PCA, and takes the least
+spread direction as the surface normal. That only works if the neighbourhood is
+large enough to contain a surface patch, which is why `normal_radius` must be
+larger than `voxel_size`.
+
+There is also the sign issue: PCA gives an axis, not a guaranteed outward
+direction. `orient_normals_consistent_tangent_plane(100)` is there so adjacent
+patches mostly agree instead of randomly flipping direction.
+
+### 5. "Euclidean clustering" deserved a real implementation
+
+Open3D has `cluster_dbscan()`, and DBSCAN is distance-based, so it is tempting to
+use that and move on. But the assignment says Euclidean clustering, which in
+robotics usually means the PCL-style connected-component algorithm:
 
 1. Build a KD-tree.
-2. Pick an unvisited seed point.
-3. Find all neighbours within the tolerance radius.
-4. Grow the connected component using a queue (BFS).
-5. Keep components larger than `min_cluster_size`.
+2. Start from an unvisited seed point.
+3. Radius-search neighbours within the tolerance.
+4. Grow the component using BFS.
+5. Keep components above the minimum cluster size.
 
-That's what `ClusterExtractor.extract_euclidean_clusters()` does — explicit BFS over a `KDTreeFlann`, not DBSCAN. DBSCAN is still available as `run_dbscan_optional()` for comparison, but it's not the pipeline's default.
+That is what `ClusterExtractor.extract_euclidean_clusters()` implements. DBSCAN
+is still available as an optional comparison helper, but the required path uses
+KD-tree radius expansion explicitly.
 
-### Rendering was actually harder than the processing
+### 6. Cluster output needed interpretation, not just colors
 
-The PCD files can't be committed (the assignment says so, and they'd be ~50MB anyway). So the PNG renders are what the reviewer actually sees. Getting those to look clear required more iteration than I expected:
+The Eagle sculpture is mostly one physically connected object, so the biggest
+cluster is expected to dominate the colored render. That does not mean clustering
+failed. It means the main body is connected, while smaller valid components
+above the 50-point threshold are separated and saved individually.
 
-- Matplotlib is Z-up. The Eagle dataset is Y-up. Passing the data straight to matplotlib lays the eagle on its side regardless of camera angle. The fix is a render-only `Rx(-90°)` rotation applied to a copy of the numpy array — the pipeline cloud never gets touched.
-- Matplotlib auto-scales X/Y/Z independently. A wide point cloud gets stretched vertically, making it look wrong. The fix: compute the max physical range across all axes and force all three limits to use it.
-- `tab20` looks fine on white backgrounds but the muted mid-tones disappear on dark canvas. The cluster palette is hand-picked for dark backgrounds — fully saturated, maximum brightness.
-- Four viewpoints (iso, front, side, top) instead of just one, because a single angle can hide clusters stacked in depth.
+That is why the pipeline writes both:
 
-### Tests forced the pipeline to be less vague
+- a combined colored scene render
+- four viewpoints of the same colored scene
+- individual `cluster_00.png` to `cluster_04.png`
+- `cluster_summary.json` with point counts, bounding boxes, extents, and centroids
 
-The assignment asks for two specific tests: downsampling reduces point count, and clustering produces more than one segment. Fine, those were easy. But writing the crop tests forced me to be explicit about what `crop_to_roi()` is actually supposed to do:
+The JSON summary matters because it makes the visual result auditable.
 
-- It can't add points (obvious, but testable).
-- Survivors must be inside the padded AABB (this caught a bug during development where `crop_padding=0.0` triggered a different code path).
-- Zero padding is a no-op, not an error.
+### 7. Renders were part of the assignment, not decoration
 
-The normal estimation tests required creating a synthetic point cloud with enough local geometry for PCA to produce stable normals. A flat grid works. A random uniform cloud doesn't — the normals come out random.
+The PDF says the PCD files are too large and render images are sufficient. That
+means the renders are not optional screenshots; they are the review artifact.
+Getting them readable took real iteration:
+
+- GitHub/CI is headless, so `matplotlib.use("Agg")` has to happen before
+  importing `pyplot`.
+- The Eagle scan is effectively Y-up, while matplotlib is Z-up, so the render
+  path applies a render-only `Rx(-90°)` rotation to make the eagle upright.
+- Matplotlib auto-scales axes independently, which can stretch the object. The
+  visualizer locks X/Y/Z to one shared physical range.
+- Dense clouds need tiny points; tiny clusters need larger points. Point size is
+  adaptive so both the 314k-point main body and small clusters remain visible.
+- The default `tab20` palette looked muted on dark backgrounds, so cluster colors
+  are manually chosen to stay bright and readable.
+- README images are embedded inline instead of linked, because the reviewer
+  should see the outputs immediately.
+
+### 8. Tests made the claims concrete
+
+The required tests were downsampling and clustering, but I added more because
+each extra test locked down a specific claim:
+
+- downsampling actually reduces point count
+- larger voxels produce fewer points
+- SOR removes distant outliers but preserves most inliers
+- crop never adds points
+- cropped points stay inside the padded AABB
+- `crop_padding=0.0` is a no-op
+- normals exist, match point count, and are finite
+- clustering produces more than one segment
+- cluster colors preserve point count and stay inside `[0, 1]`
+- tiny components below min size become noise
+
+Using synthetic clouds was intentional. Unit tests should not depend on
+downloading a 50MB Eagle file or on network state.
+
+### 9. CI and repo hygiene had their own little traps
+
+A local script passing is not the same as a reviewer being able to run it. I had
+to make the repo boring in the best way:
+
+- `.gitignore` excludes virtualenvs, caches, `.pcd`, `.ply`, `.npy`, and `.npz`.
+- `requirements.txt` is one dependency per line.
+- GitHub Actions installs the system libraries Open3D needs on Ubuntu.
+- The UML exists as both `.drawio` and `.png`, because not everyone will open a
+  draw.io file manually.
+- Old render filenames were removed so `docs/renders/` only shows the final
+  canonical outputs used by the README.
+
+### 10. The advanced pipeline is extra, but it is separated cleanly
+
+The core assignment is satisfied by `src.pipeline`. `AdvancedPipeline` is kept in
+its own file so it does not complicate the required path. It adds registration,
+Poisson reconstruction, and feature-edge detection as a product-adjacent
+extension: useful for thinking about scan alignment and spray-paint coverage,
+but not necessary to run the base assignment.
 
 ### What I would improve next
 
-- Benchmark different voxel sizes and cluster tolerances systematically, not just by eyeballing the renders.
-- Add CLI config overrides so `python -m src.pipeline --voxel-size 0.01 --tolerance 0.08` works without editing `config.py`.
-- Profile the BFS clustering on the full Eagle cloud and compare runtime vs DBSCAN.
-- Add a `pytest-cov` badge showing actual line coverage.
+| Improvement | Difficulty | Why I did not add it yet |
+|---|---:|---|
+| CLI config overrides like `--voxel-size` and `--cluster-tolerance` | Easy | Useful, but the assignment is clearer when the default `Config` is the single source of truth. |
+| Stage timing / `pipeline_metrics.json` | Easy to medium | Helpful for profiling, but it adds another generated artifact to keep in sync. |
+| Systematic voxel/tolerance benchmark grid | Medium | Needs multiple long Eagle runs and a fair scoring method, not just a quick table. |
+| BFS clustering vs DBSCAN runtime comparison | Medium | Valuable, but it should be measured carefully on the same cleaned/cropped cloud. |
+| `pytest-cov` badge | Easy locally, medium in CI | Coverage is useful, but adding a badge means maintaining one more CI/reporting path. |
+| CLI + benchmark scripts together | Medium | Best done as a follow-up once the submission pipeline stays stable. |
 
 ---
 
