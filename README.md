@@ -2,34 +2,11 @@
 
 [![Tests](https://github.com/aish-1509/augmentus-point-cloud/actions/workflows/ci.yml/badge.svg)](https://github.com/aish-1509/augmentus-point-cloud/actions/workflows/ci.yml)
 
-Open3D point-cloud processing pipeline for the Augmentus perception coding
-assignment.
+Open3D pipeline for the Augmentus perception coding assignment. Loads the Eagle sculpture scan, downsamples it, crops to a clean ROI, estimates surface normals on that cropped cloud, runs Euclidean cluster extraction, and saves everything as PNG renders.
 
-The project uses Open3D's built-in `o3d.data.EaglePointCloud()` dataset. Large
-`.pcd` / `.ply` files are intentionally not committed because the assignment
-notes that point-cloud files are too large and render images are sufficient for
-review. The generated PNG outputs live in `docs/renders/`.
+No `.pcd` or `.ply` files are committed — the Eagle dataset downloads automatically from Open3D on first run and caches locally. The render images below are the actual pipeline outputs.
 
-## Assignment Checklist
-
-| Requirement | Implementation |
-| --- | --- |
-| Python project | `src/` package with runnable modules |
-| Mandatory Open3D usage | `open3d` used for loading, filtering, normals, KD-tree search, registration, meshing |
-| Load `o3d.data.EaglePointCloud()` | `Loader.load_eagle()` in `src/loader.py` |
-| Downsampling | `Preprocessor.downsample()` using `voxel_down_sample()` |
-| Filtering | `Preprocessor.remove_outliers()` using Statistical Outlier Removal |
-| Cropped point cloud before normals | `Preprocessor.crop_to_roi()` called before `NormalEstimator.estimate()` |
-| Surface normal estimation | `NormalEstimator.estimate()` with `KDTreeSearchParamHybrid` |
-| Euclidean clustering | `ClusterExtractor.extract_euclidean_clusters()` using KD-tree radius BFS |
-| Cluster visualization | `Visualizer.save_render()` and `Visualizer.save_multi_angle_render()` |
-| Save each cluster separately | `docs/renders/clusters/cluster_*.png` |
-| Intermediate renders | raw, downsampled, cropped, normals, clusters in `docs/renders/` |
-| Renders shared in README | Images embedded below, not just linked |
-| UML class diagram | `docs/uml/class_diagram.drawio` and `docs/uml/class_diagram.png` |
-| OOP architecture | `Loader`, `Preprocessor`, `NormalEstimator`, `ClusterExtractor`, `Visualizer`, `Pipeline` |
-| Unit tests | `tests/`, currently 19 tests |
-| CI | GitHub Actions workflow in `.github/workflows/ci.yml` |
+---
 
 ## Quick Start
 
@@ -37,275 +14,328 @@ review. The generated PNG outputs live in `docs/renders/`.
 git clone https://github.com/aish-1509/augmentus-point-cloud.git
 cd augmentus-point-cloud
 
-python3 -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
 pip install -r requirements.txt
 ```
 
-Run the required assignment pipeline:
+Run the tests:
+
+```bash
+pytest
+```
+
+Run the core assignment pipeline:
 
 ```bash
 python -m src.pipeline
 ```
 
-Run the optional advanced pipeline:
+Outputs land in `docs/renders/`. Run the extended pipeline for registration, Poisson meshing, and feature edge detection:
 
 ```bash
 python -m src.advanced_pipeline
 ```
 
-Run tests:
+---
 
-```bash
-python -m pytest tests/ -v
-```
+## Pipeline Overview
 
-## Pipeline Order
+The pipeline runs five stages in order. Each stage is a separate class with its own job — no stage knows what the others are doing.
 
-The main pipeline follows the assignment wording directly:
+| Stage | What happens | Render saved |
+|---|---|---|
+| 1 — Load | `Loader.load_eagle()` fetches the Eagle PCD via `o3d.data.EaglePointCloud()` | `01_raw.png` |
+| 2 — Downsample | `Preprocessor.downsample()` runs voxel grid reduction at `voxel_size=0.02m` | `02_downsampled.png` |
+| 3 — Filter + Crop | `Preprocessor.remove_outliers()` runs SOR, then `crop_to_roi()` carves an AABB | `03_cropped.png` |
+| 4 — Normals | `NormalEstimator.estimate()` runs PCA on the **cropped** cloud | `04_normals.png` |
+| 5 — Cluster | `ClusterExtractor.extract_euclidean_clusters()` uses KD-tree BFS radius expansion | `05_clusters_colored.png` + multi-angle + `clusters/cluster_XX.png` |
 
-1. Load Eagle point cloud with `o3d.data.EaglePointCloud()`.
-2. Voxel downsample the raw cloud.
-3. Filter ghost points with Statistical Outlier Removal.
-4. Crop to a region of interest with an Open3D `AxisAlignedBoundingBox`.
-5. Estimate surface normals on the cropped point cloud.
-6. Perform Euclidean clustering with KD-tree radius expansion.
-7. Save a full colored cluster scene and individual cluster renders.
-8. Write cluster statistics to `docs/renders/cluster_summary.json`.
+The assignment specifically says to estimate normals for the "cropped point cloud." Stage 3 makes that explicit — the crop is a named, documented stage, not a hidden side-effect. Stage 4 only ever sees the cropped cloud.
 
-## Latest Verified Run
+---
 
-Verified locally on 28 June 2026:
+## Assignment Requirement Checklist
+
+| Requirement (from PDF) | Where it lives |
+|---|---|
+| `o3d.data.EaglePointCloud()` | `Loader.load_eagle()` in `src/loader.py` |
+| Voxel downsampling | `Preprocessor.downsample()` in `src/preprocessor.py` |
+| Cropped point cloud | `Preprocessor.crop_to_roi()` in `src/preprocessor.py` |
+| Normals on cropped cloud | `NormalEstimator.estimate()` in `src/normal_estimator.py` — called after crop |
+| Euclidean clustering | `ClusterExtractor.extract_euclidean_clusters()` — KD-tree BFS, not just DBSCAN |
+| Highlight / save clusters | `05_clusters_colored.png` (scene overview) + `clusters/cluster_XX.png` per cluster |
+| Intermediate renders | `docs/renders/` — raw, downsampled, cropped, normals, clusters |
+| Renders shared on README | Every required stage is embedded below using `<img>` tags |
+| UML class diagram | `docs/uml/class_diagram.drawio` and `docs/uml/class_diagram.png` |
+| OOP demonstrated | Encapsulation, composition, inheritance, DI — all documented in this README |
+| Unit test: downsampling reduces count | `TestVoxelDownsampling::test_reduces_point_count` |
+| Unit test: clustering > 1 segment | `TestClusterExtractor::test_produces_more_than_one_cluster` |
+| At least 2 unit tests | 19 total across preprocessing, clustering, and normals |
+| No PCD/PLY committed | `.gitignore` excludes `*.pcd` and `*.ply` |
+| README with setup + run instructions | This file |
+| README with architecture description | "Architecture" section below |
+
+---
+
+## Render Gallery
+
+All images are the actual outputs from running `python -m src.pipeline`. The Eagle dataset downloads automatically on the first run.
+
+### Stage 1 — Raw Eagle
+
+<img src="docs/renders/01_raw.png" width="600">
+
+### Stage 2 — Voxel Downsampled
+
+<img src="docs/renders/02_downsampled.png" width="600">
+
+### Stage 3 — Cropped ROI (used for all downstream processing)
+
+The crop step is what makes the "estimate normals for the cropped point cloud" requirement explicit. After SOR filtering, an AABB is computed from the data and shrunk inward by `crop_padding=0.05m` per face. Everything after this sees the cropped cloud only.
+
+<img src="docs/renders/03_cropped.png" width="600">
+
+### Stage 4 — Surface Normals
+
+Normal vectors are mapped to RGB: `|Nx| → Red`, `|Ny| → Green`, `|Nz| → Blue`. Using absolute values avoids the clipping issue where negative normal components would show as black. The color pattern reveals surface orientation at a glance — flat horizontal surfaces read blue/green, vertical faces read red.
+
+<img src="docs/renders/04_normals.png" width="600">
+
+### Stage 5 — Euclidean Clusters (four viewpoints)
+
+The main colored scene render shows all valid Euclidean clusters together. The largest connected body is the Eagle sculpture itself; the smaller valid clusters are separated surface fragments above the 50-point cutoff.
+
+<img src="docs/renders/05_clusters_colored.png" width="600">
+
+A single angle can hide clusters that overlap in depth. Four viewpoints together make spatial separation visually unambiguous.
+
+| Isometric | Front | Side | Top |
+|---|---|---|---|
+| <img src="docs/renders/05_clusters_colored_iso.png" width="230"> | <img src="docs/renders/05_clusters_colored_front.png" width="230"> | <img src="docs/renders/05_clusters_colored_side.png" width="230"> | <img src="docs/renders/05_clusters_colored_top.png" width="230"> |
+
+### Stage 5 — Individual Cluster Renders
+
+Each cluster is saved separately with its assigned vibrant color. Small clusters that are invisible slivers in the combined view are clearly visible here.
+
+| cluster_00 | cluster_01 | cluster_02 |
+|---|---|---|
+| <img src="docs/renders/clusters/cluster_00.png" width="280"> | <img src="docs/renders/clusters/cluster_01.png" width="280"> | <img src="docs/renders/clusters/cluster_02.png" width="280"> |
+
+| cluster_03 | cluster_04 | |
+|---|---|---|
+| <img src="docs/renders/clusters/cluster_03.png" width="280"> | <img src="docs/renders/clusters/cluster_04.png" width="280"> | |
+
+A `cluster_summary.json` is also written to `docs/renders/` with point count, bounding box, and centroid data for each cluster.
+
+### Advanced Pipeline Renders (optional)
+
+| Registered | Poisson Mesh | Feature Edges |
+|---|---|---|
+| <img src="docs/renders/06_registered.png" width="280"> | <img src="docs/renders/07_poisson_mesh.png" width="280"> | <img src="docs/renders/08_feature_edges.png" width="280"> |
+
+---
+
+## Architecture
+
+**UML class diagram:** [docs/uml/class_diagram.drawio](docs/uml/class_diagram.drawio)
+*(Open in [diagrams.net](https://app.diagrams.net) or the draw.io VS Code extension)*
+
+<img src="docs/uml/class_diagram.png" width="900">
+
+The pipeline uses composition: `Pipeline` holds one instance of each processing component and coordinates the call order. No component knows about the others.
+
+| Class | File | What it owns |
+|---|---|---|
+| `Config` | `src/config.py` | Every tunable parameter in one `@dataclass`. No magic numbers in other files. |
+| `Loader` | `src/loader.py` | Fetches the Eagle scan via `o3d.data.EaglePointCloud()`. Validates it's non-empty. |
+| `Preprocessor` | `src/preprocessor.py` | Voxel downsampling, SOR filtering, AABB crop. Each step is its own public method. |
+| `NormalEstimator` | `src/normal_estimator.py` | PCA normal estimation with KDTreeHybrid. Orients normals consistently. |
+| `ClusterExtractor` | `src/cluster_extractor.py` | KD-tree BFS Euclidean cluster extraction. Coloring, per-cluster clouds, JSON summary. |
+| `Visualizer` | `src/visualizer.py` | Headless Matplotlib renders. Dark background, coordinate-frame correction, multi-angle. |
+| `Pipeline` | `src/pipeline.py` | Orchestrates the 5-stage assignment pipeline using the above components. |
+| `AdvancedPipeline` | `src/advanced_pipeline.py` | Extends `Pipeline` with FPFH+RANSAC, ICP, Poisson reconstruction, feature edges. |
+
+---
+
+## OOP Refresher and Design Thinking
+
+Honestly — OOP was something I studied back in Year 1, and while the concepts were there somewhere in my head, I hadn't applied them to a project of this structure in a while. Since the assignment PDF specifically called out OOP and UML as evaluation criteria, I knew I couldn't just write some functions and call it a day.
+
+So before touching any code, I went back and revised the actual concepts. Encapsulation, abstraction, composition vs inheritance, dependency injection, single responsibility. Not just as definitions, but as things I could point to in the codebase and explain why they're there.
+
+Here's where each concept actually shows up in this project:
+
+**Encapsulation**
+Every class stores its configuration as private attributes (`self._voxel_size`, `self._tolerance`, `self._crop_padding`). External code can't accidentally change what a stage is doing mid-run. The `@property` decorator on `Visualizer.output_dir` gives read access without exposing the backing attribute.
+
+**Abstraction**
+`Pipeline` calls `preprocessor.downsample()`, `preprocessor.crop_to_roi()`, `normal_estimator.estimate()`. It doesn't know anything about how voxel grids work, how AABB bounds are computed, or what KDTreeSearchParamHybrid means. Each class hides its Open3D internals behind a simple interface.
+
+**Composition over inheritance (base pipeline)**
+`Pipeline` owns instances of `Loader`, `Preprocessor`, `NormalEstimator`, `ClusterExtractor`, `Visualizer`. None of them inherit from each other. Each one can be swapped or tested independently without touching the others.
+
+**Inheritance (advanced pipeline)**
+`AdvancedPipeline` extends `Pipeline` — it calls `self.run()` to get the base stages, then adds registration, Poisson meshing, and edge detection afterward. The base pipeline is unchanged. This is the Open/Closed Principle applied: closed to modification, open to extension.
+
+**Dependency Injection**
+Every component receives a `Config` dataclass at construction. Change `voxel_size` in one place, it propagates automatically. No global state, no hardcoded magic numbers scattered across files.
+
+**Single Responsibility**
+`Loader` only loads. `Preprocessor` only cleans and crops. `NormalEstimator` only estimates normals. `ClusterExtractor` only clusters. `Visualizer` only renders. Each class is testable in isolation because it has exactly one job.
+
+**`@dataclass` for Config**
+`@dataclass` generates `__init__`, `__repr__`, and `__eq__` automatically. Every field has an inline comment explaining what it does and why the default value was chosen — not just what it is. That comment doubles as engineering documentation.
+
+---
+
+## Development Notes: What I Had to Figure Out
+
+### The crop wording looked small but actually mattered
+
+The assignment says: *"Estimate surface normals for the cropped point cloud."*
+
+It would have been easy to just downsample, run SOR, and call that preprocessing. A lot of pipelines do exactly that. But the PDF used the word "cropped" specifically, and I didn't want the implementation to be ambiguous about it.
+
+So `crop_to_roi()` is its own named method in `Preprocessor`. The pipeline calls it explicitly, saves a separate render for it (`03_cropped.png`), and Stage 4 (normals) only ever receives the cropped cloud as input. The comment in `pipeline.py` says exactly why: the assignment requested this ordering, so the code makes it visible rather than hiding it inside a generic `preprocess()` call.
+
+### "Euclidean clustering" vs just using DBSCAN
+
+Open3D ships `cluster_dbscan()` out of the box, and it would have been easy to use it and call it Euclidean clustering because the eps parameter is a Euclidean distance. But the assignment wording is "Euclidean clustering," which in robotics typically means the PCL-style algorithm:
+
+1. Build a KD-tree.
+2. Pick an unvisited seed point.
+3. Find all neighbours within the tolerance radius.
+4. Grow the connected component using a queue (BFS).
+5. Keep components larger than `min_cluster_size`.
+
+That's what `ClusterExtractor.extract_euclidean_clusters()` does — explicit BFS over a `KDTreeFlann`, not DBSCAN. DBSCAN is still available as `run_dbscan_optional()` for comparison, but it's not the pipeline's default.
+
+### Rendering was actually harder than the processing
+
+The PCD files can't be committed (the assignment says so, and they'd be ~50MB anyway). So the PNG renders are what the reviewer actually sees. Getting those to look clear required more iteration than I expected:
+
+- Matplotlib is Z-up. The Eagle dataset is Y-up. Passing the data straight to matplotlib lays the eagle on its side regardless of camera angle. The fix is a render-only `Rx(-90°)` rotation applied to a copy of the numpy array — the pipeline cloud never gets touched.
+- Matplotlib auto-scales X/Y/Z independently. A wide point cloud gets stretched vertically, making it look wrong. The fix: compute the max physical range across all axes and force all three limits to use it.
+- `tab20` looks fine on white backgrounds but the muted mid-tones disappear on dark canvas. The cluster palette is hand-picked for dark backgrounds — fully saturated, maximum brightness.
+- Four viewpoints (iso, front, side, top) instead of just one, because a single angle can hide clusters stacked in depth.
+
+### Tests forced the pipeline to be less vague
+
+The assignment asks for two specific tests: downsampling reduces point count, and clustering produces more than one segment. Fine, those were easy. But writing the crop tests forced me to be explicit about what `crop_to_roi()` is actually supposed to do:
+
+- It can't add points (obvious, but testable).
+- Survivors must be inside the padded AABB (this caught a bug during development where `crop_padding=0.0` triggered a different code path).
+- Zero padding is a no-op, not an error.
+
+The normal estimation tests required creating a synthetic point cloud with enough local geometry for PCA to produce stable normals. A flat grid works. A random uniform cloud doesn't — the normals come out random.
+
+### What I would improve next
+
+- Benchmark different voxel sizes and cluster tolerances systematically, not just by eyeballing the renders.
+- Add CLI config overrides so `python -m src.pipeline --voxel-size 0.01 --tolerance 0.08` works without editing `config.py`.
+- Profile the BFS clustering on the full Eagle cloud and compare runtime vs DBSCAN.
+- Add a `pytest-cov` badge showing actual line coverage.
+
+---
+
+## Latest Verified Results
 
 ```text
 Base pipeline:
-796,825 raw points
-329,988 downsampled points
-316,519 after Statistical Outlier Removal
-314,626 cropped ROI points
-5 valid Euclidean clusters
-11 tiny connected components dropped as noise
+796,825 raw pts → 329,988 downsampled → 316,519 cleaned → 314,626 cropped → 5 clusters extracted
 
 Advanced pipeline:
 ICP fitness       = 1.0000
 ICP RMSE          = 0.000000
-Poisson triangles = 1,042,152
+Poisson triangles = 1,042,152  (depth=9)
 Feature edges     = 97,977 segments above 20 degrees
 
 Tests:
 19 passed
 ```
 
-## Render Gallery
-
-### Raw Eagle Cloud
-
-<img src="docs/renders/01_raw.png" width="700" alt="Raw Eagle point cloud render">
-
-### Downsampled Cloud
-
-<img src="docs/renders/02_downsampled.png" width="700" alt="Downsampled Eagle point cloud render">
-
-### Cropped Point Cloud Used For Normals
-
-This is the explicit cropped ROI stage required before normal estimation.
-
-<img src="docs/renders/03_cropped.png" width="700" alt="Cropped Eagle point cloud render">
-
-### Surface Normals
-
-Normals are visualized as an RGB normal map using `abs(nx, ny, nz)`.
-
-<img src="docs/renders/04_normals.png" width="700" alt="Surface normal RGB render">
-
-### Euclidean Clusters
-
-The Eagle sculpture is mostly one physically connected object, so the main body
-dominates the colored render. The Euclidean cluster extractor still finds four
-additional valid disconnected components above the 50-point cutoff and drops
-11 tiny connected components as noise.
-
-<img src="docs/renders/05_clusters_colored.png" width="700" alt="Colored Euclidean clusters">
-
-### Cluster Views
-
-Four views are saved because one camera angle can hide spatial separation.
-
-| Isometric | Front |
-| --- | --- |
-| <img src="docs/renders/05_clusters_colored_iso.png" width="420" alt="Cluster isometric view"> | <img src="docs/renders/05_clusters_colored_front.png" width="420" alt="Cluster front view"> |
-
-| Side | Top |
-| --- | --- |
-| <img src="docs/renders/05_clusters_colored_side.png" width="420" alt="Cluster side view"> | <img src="docs/renders/05_clusters_colored_top.png" width="420" alt="Cluster top view"> |
-
-### Individual Cluster Renders
-
-| Cluster 00 | Cluster 01 | Cluster 02 |
-| --- | --- | --- |
-| <img src="docs/renders/clusters/cluster_00.png" width="280" alt="Cluster 00"> | <img src="docs/renders/clusters/cluster_01.png" width="280" alt="Cluster 01"> | <img src="docs/renders/clusters/cluster_02.png" width="280" alt="Cluster 02"> |
-
-| Cluster 03 | Cluster 04 |
-| --- | --- |
-| <img src="docs/renders/clusters/cluster_03.png" width="280" alt="Cluster 03"> | <img src="docs/renders/clusters/cluster_04.png" width="280" alt="Cluster 04"> |
-
-Cluster statistics are saved in
-[`docs/renders/cluster_summary.json`](docs/renders/cluster_summary.json).
-
-## Optional Advanced Outputs
-
-These are not required by the assignment, but they show the pipeline can extend
-toward inspection or spray-paint coverage workflows.
-
-| Registered Scan | Poisson Mesh | Feature Edges |
-| --- | --- | --- |
-| <img src="docs/renders/06_registered.png" width="300" alt="Registered scan"> | <img src="docs/renders/07_poisson_mesh.png" width="300" alt="Poisson mesh render"> | <img src="docs/renders/08_feature_edges.png" width="300" alt="Feature edge render"> |
-
-## Architecture
-
-UML source: [`docs/uml/class_diagram.drawio`](docs/uml/class_diagram.drawio)
-
-<img src="docs/uml/class_diagram.png" width="900" alt="UML Class Diagram">
-
-| Module | Responsibility |
-| --- | --- |
-| `src/config.py` | Central dataclass for all tunable parameters |
-| `src/loader.py` | Loads the Open3D Eagle dataset and validates it |
-| `src/preprocessor.py` | Voxel downsampling, Statistical Outlier Removal, cropped ROI |
-| `src/normal_estimator.py` | PCA-based surface normal estimation |
-| `src/cluster_extractor.py` | Euclidean cluster extraction, coloring, cluster summaries |
-| `src/visualizer.py` | Headless Matplotlib PNG renders and normal-map visualization |
-| `src/pipeline.py` | Required assignment pipeline orchestration |
-| `src/advanced_pipeline.py` | Optional registration, Poisson reconstruction, feature-edge extraction |
-
-## OOP Design Decisions
-
-**Encapsulation**: each stage owns its configuration and behavior. For example,
-`Preprocessor` manages voxel size, outlier filtering, and crop behavior without
-leaking Open3D implementation details into `Pipeline`.
-
-**Abstraction**: `Pipeline` calls simple stage methods such as `load_eagle()`,
-`downsample()`, `crop_to_roi()`, `estimate()`, and
-`extract_euclidean_clusters()`. The Open3D-specific work stays inside the class
-that owns it.
-
-**Composition**: `Pipeline` is composed of `Loader`, `Preprocessor`,
-`NormalEstimator`, `ClusterExtractor`, and `Visualizer`. This keeps each class
-independently testable.
-
-**Single Responsibility Principle**: `Loader` only loads data. `Preprocessor`
-only prepares the cloud. `NormalEstimator` only estimates normals.
-`ClusterExtractor` only extracts clusters. `Visualizer` only renders outputs.
-
-**Dependency Injection**: a shared `Config` object is passed into processing
-classes so parameters are centralized and easy to tune.
-
-**Inheritance for extension**: `AdvancedPipeline` extends `Pipeline` to add
-registration, Poisson reconstruction, and feature-edge detection without
-modifying the base assignment path.
-
-**Testability**: tests use synthetic point clouds so they do not need to
-download the Eagle dataset or depend on network state.
-
-## Euclidean Clustering Notes
-
-The default clustering path is explicit Euclidean Cluster Extraction:
-
-- build `o3d.geometry.KDTreeFlann`
-- visit each point once
-- grow connected components with radius search and a queue
-- keep clusters with at least `clustering_min_points`
-- label smaller components as noise
-
-This matches the usual PCL-style Euclidean clustering concept more directly than
-using DBSCAN alone. DBSCAN remains available as an optional comparison helper,
-but the main pipeline uses `extract_euclidean_clusters()`.
-
-## Render Design Notes
-
-Open3D's interactive viewer is not ideal for automated review because it needs a
-display manager. The renderer uses Matplotlib with the `Agg` backend, which works
-in headless CI/Docker environments and saves PNGs directly.
-
-The visualizer also fixes three practical rendering issues:
-
-- The Eagle scan is stored Y-up while Matplotlib is Z-up, so a render-only
-  `Rx(-90°)` rotation is applied to the copied NumPy points.
-- X/Y/Z limits are locked to one shared physical range so the object is not
-  stretched.
-- Point size is adaptive, so the 314k-point main body and tiny 50-point clusters
-  are both readable.
+---
 
 ## Tests
 
-Current suite: `19 passed`.
+```bash
+pytest
+pytest -v          # verbose, shows individual test names
+```
 
-Test coverage includes:
+| Test file | What it covers |
+|---|---|
+| `tests/test_preprocessing.py` | Downsampling (4 tests), SOR (2 tests), Crop (4 tests) |
+| `tests/test_cluster_extractor.py` | Multi-segment output, exact count, sort order, color validity, noise labels, JSON summary |
+| `tests/test_normal_estimator.py` | Normals exist and are finite after estimation, empty-cloud guard |
 
-- voxel downsampling reduces point count
-- downsampled output is not empty
-- larger voxel size produces fewer points
-- downsampled centroids stay inside original bounds
-- Statistical Outlier Removal removes distant noise
-- Statistical Outlier Removal preserves most inliers
-- crop never increases point count
-- crop removes boundary points with large padding
-- cropped points stay inside padded AABB
-- zero crop padding is a no-op
-- normal estimation adds one finite normal per point
-- empty cloud normal estimation fails clearly
-- Euclidean clustering produces more than one segment
-- Euclidean clustering finds exactly two synthetic blobs
-- clusters are sorted largest-first
-- colored cluster cloud preserves point count
-- RGB colors stay within `[0, 1]`
-- tiny components below min size become noise
-- cluster summaries include geometry statistics
+Tests use synthetic in-memory point clouds — no Eagle download needed, no network calls, deterministic across runs.
+
+---
 
 ## Repository Structure
 
 ```text
 augmentus-point-cloud/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── .github/workflows/ci.yml
 ├── src/
-│   ├── config.py
-│   ├── loader.py
-│   ├── preprocessor.py
-│   ├── normal_estimator.py
-│   ├── cluster_extractor.py
-│   ├── visualizer.py
-│   ├── pipeline.py
-│   └── advanced_pipeline.py
+│   ├── config.py              # All tunable parameters in one dataclass
+│   ├── loader.py              # Eagle dataset loading
+│   ├── preprocessor.py        # Downsample + SOR + AABB crop
+│   ├── normal_estimator.py    # PCA normal estimation
+│   ├── cluster_extractor.py   # Euclidean BFS clustering
+│   ├── visualizer.py          # Headless PNG rendering
+│   ├── pipeline.py            # Core assignment pipeline
+│   └── advanced_pipeline.py   # Registration + Poisson + edge detection
 ├── tests/
 │   ├── test_preprocessing.py
-│   ├── test_normal_estimator.py
-│   └── test_cluster_extractor.py
-└── docs/
-    ├── renders/
-    │   ├── 01_raw.png
-    │   ├── 02_downsampled.png
-    │   ├── 03_cropped.png
-    │   ├── 04_normals.png
-    │   ├── 05_clusters_colored.png
-    │   ├── cluster_summary.json
-    │   └── clusters/
-    └── uml/
-        ├── class_diagram.drawio
-        └── class_diagram.png
+│   ├── test_cluster_extractor.py
+│   └── test_normal_estimator.py
+├── docs/
+│   ├── renders/               # All PNG outputs (generated at runtime)
+│   │   └── clusters/          # Per-cluster individual renders
+│   └── uml/
+│       ├── class_diagram.drawio
+│       └── class_diagram.png
+├── .github/workflows/ci.yml   # GitHub Actions: runs pytest on every push
+├── requirements.txt
+└── .gitignore                 # Excludes *.pcd, *.ply, venv, __pycache__
 ```
 
-## Dependency Notes
+---
 
-`requirements.txt` keeps the runtime small:
+## Why No PCD/PLY Files
 
-- `open3d`
-- `numpy`
-- `matplotlib`
-- `pytest`
+The assignment notes that PCD files are too large to upload. The Eagle scan is ~50MB. The pipeline uses `o3d.data.EaglePointCloud()` which downloads and caches the file automatically on first run — no local copy needs to be committed. `.gitignore` excludes `*.pcd`, `*.ply`, and the Open3D data cache directory.
 
-`.gitignore` excludes generated caches, virtual environments, `.pcd`, `.ply`,
-and OS junk files. The Open3D Eagle dataset is downloaded/cached by Open3D
-locally instead of being committed.
+---
+
+## Why Open3D
+
+Open3D's Python API is the practical choice for this assignment:
+
+- `o3d.data.EaglePointCloud()` is the required dataset source — no other library provides this.
+- `PointCloud` objects store points, normals, and colors in a consistent structure that the whole pipeline can pass around without format conversion.
+- `KDTreeFlann` gives fast radius search, which is the core primitive for both normal estimation and the Euclidean cluster BFS.
+- The Agg matplotlib backend (set before any pyplot import) makes rendering headless-safe on CI without a display manager.
+
+---
+
+## Advanced Pipeline
+
+`AdvancedPipeline` inherits from `Pipeline` and adds:
+
+1. **FPFH + RANSAC global registration** — rough alignment from a cold start, before ICP.
+2. **Point-to-plane ICP** — local refinement using target surface normals for stable convergence on smooth geometry.
+3. **Poisson surface reconstruction** (depth=9) — converts the oriented point cloud to a watertight mesh.
+4. **Dihedral-angle feature edge detection** — finds sharp mesh transitions (>20°) relevant to spray-paint nozzle path planning.
+
+These stages are framed around coverage planning for the Eagle sculpture: registration simulates aligning two scans, Poisson gives a continuous surface to reason about, and feature edges flag corners, feather ridges, and plinth boundaries where a spray nozzle needs slower motion or extra overlap.
+
+```bash
+python -m src.advanced_pipeline
+```
+
+The core assignment is fully satisfied by `src/pipeline.py`. The advanced pipeline is a separate file so the required path stays simple.
