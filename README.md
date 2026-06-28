@@ -78,6 +78,8 @@ The assignment specifically says to estimate normals for the "cropped point clou
 | README with setup + run instructions | This file |
 | README with architecture description | "Architecture" section below |
 
+For a compact final cross-check, see [`docs/final_submission_checklist.md`](docs/final_submission_checklist.md).
+
 ---
 
 ## Render Gallery
@@ -144,6 +146,8 @@ A `cluster_summary.json` is also written to `docs/renders/` with point count, bo
 *(Open in [diagrams.net](https://app.diagrams.net) or the draw.io VS Code extension)*
 
 <img src="docs/uml/class_diagram.png" width="900">
+
+The diagram is not there as decoration. I used it as the architecture map to check responsibilities and relationships before finalizing the implementation: where `Config` gets injected, which classes are composed into `Pipeline`, and where `AdvancedPipeline` extends the base pipeline.
 
 The pipeline uses composition: `Pipeline` holds one instance of each processing component and coordinates the call order. No component knows about the others.
 
