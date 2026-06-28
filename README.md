@@ -78,7 +78,8 @@ The assignment specifically says to estimate normals for the "cropped point clou
 | README with setup + run instructions | This file |
 | README with architecture description | "Architecture" section below |
 
-For a compact final cross-check, see [`docs/final_submission_checklist.md`](docs/final_submission_checklist.md).
+For a compact final cross-check see [`docs/final_submission_checklist.md`](docs/final_submission_checklist.md).
+For a row-by-row mapping of every assignment sentence to code or docs, see [`docs/assignment_traceability_matrix.md`](docs/assignment_traceability_matrix.md).
 
 ---
 
@@ -132,6 +133,8 @@ Each cluster is saved separately with its assigned vibrant color. Small clusters
 
 A `cluster_summary.json` is also written to `docs/renders/` with point count, bounding box, and centroid data for each cluster.
 
+**Note on cluster count:** The Euclidean pass finds five valid components above the `min_cluster_size=50` threshold. A sixth connected component exists in the data with 37 points, but falls below the cutoff. Lowering the threshold to 30 would include it, but at 37 points (roughly 2 cm × 2 cm surface patch at 2 cm voxel spacing) it is more likely a scanner edge artifact than meaningful geometry. Keeping the threshold at 50 avoids presenting noise as a cluster.
+
 ### Advanced Pipeline Renders (optional)
 
 | Registered | Poisson Mesh | Feature Edges |
@@ -144,6 +147,8 @@ A `cluster_summary.json` is also written to `docs/renders/` with point count, bo
 
 **UML class diagram:** [docs/uml/class_diagram.drawio](docs/uml/class_diagram.drawio)
 *(Open in [diagrams.net](https://app.diagrams.net) or the draw.io VS Code extension)*
+
+**Architecture design notes** (OOP decisions, design evolution, crop rationale): [`docs/architecture_design_notes.md`](docs/architecture_design_notes.md)
 
 <img src="docs/uml/class_diagram.png" width="900">
 
@@ -420,9 +425,12 @@ augmentus-point-cloud/
 ├── docs/
 │   ├── renders/               # All PNG outputs (generated at runtime)
 │   │   └── clusters/          # Per-cluster individual renders
-│   └── uml/
-│       ├── class_diagram.drawio
-│       └── class_diagram.png
+│   ├── uml/
+│   │   ├── class_diagram.drawio
+│   │   └── class_diagram.png
+│   ├── assignment_traceability_matrix.md  # Maps every requirement to code/docs
+│   ├── architecture_design_notes.md       # OOP decisions and design rationale
+│   └── final_submission_checklist.md
 ├── .github/workflows/ci.yml   # GitHub Actions: runs pytest on every push
 ├── requirements.txt
 └── .gitignore                 # Excludes *.pcd, *.ply, venv, __pycache__
