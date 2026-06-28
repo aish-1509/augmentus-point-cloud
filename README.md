@@ -47,11 +47,11 @@ The pipeline runs five stages in order. Each stage is a separate class with its 
 
 | Stage | What happens | Render saved |
 |---|---|---|
-| 1 — Load | `Loader.load_eagle()` fetches the Eagle PCD via `o3d.data.EaglePointCloud()` | `01_raw.png` |
-| 2 — Downsample | `Preprocessor.downsample()` runs voxel grid reduction at `voxel_size=0.02m` | `02_downsampled.png` |
-| 3 — Filter + Crop | `Preprocessor.remove_outliers()` runs SOR, then `crop_to_roi()` carves an AABB | `03_cropped.png` |
-| 4 — Normals | `NormalEstimator.estimate()` runs PCA on the **cropped** cloud | `04_normals.png` |
-| 5 — Cluster | `ClusterExtractor.extract_euclidean_clusters()` uses KD-tree BFS radius expansion | `05_clusters_colored.png` + multi-angle + `clusters/cluster_XX.png` |
+| 1 - Load | `Loader.load_eagle()` fetches the Eagle PCD via `o3d.data.EaglePointCloud()` | `01_raw.png` |
+| 2 - Downsample | `Preprocessor.downsample()` runs voxel grid reduction at `voxel_size=0.02m` | `02_downsampled.png` |
+| 3 - Filter + Crop | `Preprocessor.remove_outliers()` runs SOR, then `crop_to_roi()` carves an AABB | `03_cropped.png` |
+| 4 - Normals | `NormalEstimator.estimate()` runs PCA on the **cropped** cloud | `04_normals.png` |
+| 5 - Cluster | `ClusterExtractor.extract_euclidean_clusters()` uses KD-tree BFS radius expansion | `05_clusters_colored.png` + multi-angle + `clusters/cluster_XX.png` |
 
 The assignment specifically says to estimate normals for the "cropped point cloud." Stage 3 makes that explicit — the crop is a named, documented stage, not a hidden side-effect. Stage 4 only ever sees the cropped cloud.
 
