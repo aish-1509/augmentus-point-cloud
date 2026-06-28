@@ -39,14 +39,15 @@ class Preprocessor:
     Pipeline order: downsample → remove_outliers → crop_to_roi.
 
     - Downsample before SOR: SOR computes nearest-neighbour distances, which is
-      expensive. Running it on the already-reduced cloud cuts that cost hard.
+      expensive. Running it on the already-reduced cloud reduces that cost
+      significantly.
     - SOR before crop: removes floating ghost points before the crop bounds are
       used for the final normal-estimation ROI.
     - Crop before normals: makes the "cropped point cloud" requirement explicit.
     """
 
     def __init__(self, config: Config) -> None:
-        # Underscore prefix = "internal, please don't poke this directly."
+        # Underscore prefix marks these as internal stage parameters.
         self._crop_padding = config.crop_padding
         self._voxel_size = config.voxel_size
         self._nb_neighbors = config.sor_nb_neighbors
@@ -174,9 +175,11 @@ class Preprocessor:
         return clean
 
     def preprocess(self, pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
-        """Full preprocessing chain: downsample, then remove outliers.
+        """Full preprocessing chain: downsample, remove outliers, then crop ROI.
 
         This is what Pipeline calls. The separate methods stay public because
         tests should be able to verify each step on its own.
         """
-        return self.remove_outliers(self.downsample(pcd))
+        downsampled = self.downsample(pcd)
+        clean = self.remove_outliers(downsampled)
+        return self.crop_to_roi(clean)

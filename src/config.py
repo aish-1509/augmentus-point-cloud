@@ -132,7 +132,6 @@ class Config:
     # Actual processing always uses the full cloud; this only affects image output.
 
     max_clusters_to_save: int = 13
-    # How many individual cluster PNGs to render (largest clusters first).
-    # The Eagle dataset typically produces 13 clusters.
-    # Setting this to 13 saves every one of them as its own PNG.
-    # Reduce to 5 for faster runs; set higher if more clusters appear.
+    # Upper cap for individual cluster PNG exports.
+    # The current Eagle run keeps 5 valid Euclidean clusters, but 13 leaves room
+    # for future parameter changes without silently hiding extra valid clusters.

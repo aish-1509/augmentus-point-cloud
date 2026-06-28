@@ -93,7 +93,7 @@ class TestVoxelDownsampling:
         orig = np.asarray(pcd.points)
         res = np.asarray(result.points)
 
-        # 1e-6 tolerance bc float64 math can be a lil quirky at the edges.
+        # 1e-6 tolerance because float64 boundary math can have tiny precision noise.
         assert np.all(res >= orig.min(axis=0) - 1e-6)
         assert np.all(res <= orig.max(axis=0) + 1e-6)
 

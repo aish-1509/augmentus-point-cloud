@@ -250,8 +250,8 @@ Base pipeline:
 Advanced pipeline:
 ICP fitness       = 1.0000
 ICP RMSE          = 0.000000
-Poisson triangles = 1,042,152  (depth=9)
-Feature edges     = 97,977 segments above 20 degrees
+Poisson triangles = ~1.04M  (depth=9)
+Feature edges     = ~98k segments above 20 degrees
 
 Tests:
 19 passed

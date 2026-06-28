@@ -101,7 +101,8 @@ class TestClusterExtractor:
 
         sizes = [len(cluster.points) for cluster in clusters]
         assert sizes == sorted(sizes, reverse=True), (
-            "List is not sorted largest-first. Downstream processing will brick."
+            "List is not sorted largest-first. Downstream processing may inspect "
+            "a tiny fragment before the main object."
         )
 
     def test_colored_cloud_preserves_point_count(self) -> None:
