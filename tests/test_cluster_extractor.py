@@ -16,8 +16,8 @@ from src.config import Config
 # connected component or many tiny fragments depending on the tolerance.
 #
 # The reliable move is to engineer two tight Gaussian blobs in 3D space, separated
-# by a distance much larger than `eps` (2.0m >> 0.05m). This makes DBSCAN's
-# reachability, and Euclidean radius reachability, fail across the gap.
+# by a distance much larger than `eps` (2.0m >> 0.05m). Euclidean radius
+# reachability must fail across that empty gap, so the blobs should split cleanly.
 # ──────────────────────────────────────────────────────────────────────────────
 
 

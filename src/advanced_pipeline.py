@@ -158,8 +158,10 @@ class AdvancedPipeline(Pipeline):
         V is the normal field. chi is the indicator field. Once chi exists, the
         surface is basically the boundary where inside flips to outside.
 
-        `depth=8` controls octree detail. Lower values lose shape detail; higher
-        values increase memory and runtime. 8 is a practical middle for this scan.
+        `depth=9` controls octree detail. Lower values lose shape detail; higher
+        values increase memory and runtime. 9 is the current visual-detail choice
+        for this scan because it preserves more feather and plinth structure in
+        the rendered mesh.
         """
         if not pcd.has_normals():
             raise ValueError("Poisson needs oriented normals. Run NormalEstimator first.")
