@@ -48,7 +48,7 @@ a specific file, method, or README section below.
 | "easy to run" | Three commands: `pip install -r requirements.txt` → `pytest` → `python -m src.pipeline` | README "Quick Start" | ✅ |
 | "well-structured" | One responsibility per class; Config injects into all; Pipeline composes without inheritance | `ls src/ tests/ docs/` | ✅ |
 | "visually informative" | Dark-background renders, coordinate-corrected orientation, adaptive point size, multi-angle cluster views | `ls docs/renders/` | ✅ |
-| "AI tools are allowed, but…reflect your thought process" | README "Note on Tools and Learning Process" + "Development Notes" section explains every non-obvious decision | `grep -n "Development Notes\|Note on" README.md` | ✅ |
+| "AI tools are allowed, but…reflect your thought process" | README "Development Notes: What I Had to Figure Out" section explains every non-obvious decision | `grep -n "Development Notes" README.md` | ✅ |
 
 ---
 
@@ -70,7 +70,7 @@ Run `python -m src.pipeline` to reproduce:
 ```
 
 A 6th connected component with 37 points exists in the data but falls below the
-`min_cluster_size=50` threshold. That boundary is a deliberate engineering decision:
+`clustering_min_points=50` threshold. That boundary is a deliberate engineering decision:
 50 points represents roughly a credit-card-sized surface patch at 2 cm voxel spacing.
 Components smaller than that are more likely to be scanner edge artifacts than
 meaningful geometry. The 5-cluster result reflects this choice clearly.
